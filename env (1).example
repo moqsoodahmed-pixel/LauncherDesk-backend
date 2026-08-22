@@ -1,0 +1,33 @@
+# Server
+PORT=5000
+NODE_ENV=development
+
+# MongoDB
+MONGO_URI=mongodb://localhost:27017/launcherdesk
+# For MongoDB Atlas:
+# MONGO_URI=mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/launcherdesk?retryWrites=true&w=majority
+
+# JWT
+JWT_SECRET=your_super_secret_jwt_key_change_this_in_production
+JWT_EXPIRE=7d
+
+# Frontend URL (for CORS)
+CLIENT_URL=http://localhost:5173
+
+# Email (Nodemailer) — use your SMTP credentials
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your@gmail.com
+SMTP_PASS=your_app_password
+EMAIL_FROM=LauncherDesk <no-reply@launcherdesk.com>
+SUPPORT_EMAIL=contact@launcherdesk.com
+
+# File uploads
+MAX_FILE_SIZE=5242880
+
+# ── Voiceflow ─────────────────────────────────────────────────────────────────
+# Get your API key from: https://creator.voiceflow.com → Settings → API Keys
+VOICEFLOW_API_KEY=VF.DM.xxxxxxxxxxxxxxxxxxxxxxxx
+
+# Which published version to target: 'production' or 'development'
+VOICEFLOW_VERSION_ALIAS=production
