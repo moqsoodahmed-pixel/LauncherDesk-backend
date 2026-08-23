@@ -15,7 +15,8 @@ const authRoutes        = require('./routes/auth')
 const quoteRoutes       = require('./routes/quotes')
 const applicationRoutes = require('./routes/applications')
 const marketRoutes      = require('./routes/market')
-const voiceflowRoutes   = require('./routes/voiceflow')   // ← Voiceflow
+const voiceflowRoutes   = require('./routes/voiceflow')
+const adminRoutes       = require('./routes/admin')
 
 // Connect to MongoDB
 connectDB()
@@ -26,9 +27,19 @@ const app = express()
 
 // CORS
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: [
+    'http://localhost:5173',
+    'https://launcherdesk-frontend-7wj.pages.dev',
+    'https://launcherdesk.net',
+    'https://www.launcherdesk.net',
+    process.env.CLIENT_URL,
+  ].filter(Boolean),
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
 }))
+
+// Handle preflight requests
+app.options('*', cors())
 
 // Body parsers
 app.use(express.json({ limit: '10mb' }))
@@ -55,7 +66,8 @@ app.use('/api/blogs',        blogRoutes)
 app.use('/api/faqs',         faqRoutes)
 app.use('/api/applications', applicationRoutes)
 app.use('/api/market',       marketRoutes)
-app.use('/api/voiceflow',    voiceflowRoutes)              // ← Voiceflow
+app.use('/api/voiceflow',    voiceflowRoutes)
+app.use('/api/admin',       adminRoutes)
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
@@ -80,6 +92,6 @@ app.use((err, req, res, _next) => {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀  LauncherDesk API running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`)
 })
