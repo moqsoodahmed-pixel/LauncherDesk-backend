@@ -2,10 +2,11 @@ const axios       = require('axios')
 const ChatSession = require('../models/ChatSession')
 const Lead        = require('../models/Lead')
 const { asyncHandler, AppError } = require('../middleware/errorHandler')
+const { LAUNCHERDESK_KB_SHORT }  = require('../data/knowledgeBase')
 
 const VF_BASE    = 'https://general-runtime.voiceflow.com'
 const VF_API_KEY = process.env.VOICEFLOW_API_KEY
-const VF_VERSION = process.env.VOICEFLOW_VERSION_ALIAS || 'production' // or 'development'
+const VF_VERSION = process.env.VOICEFLOW_VERSION_ALIAS || 'production'
 
 // ── Helper: extract plain text from Voiceflow traces ─────────────────────────
 function extractMessages(traces = []) {
@@ -24,8 +25,7 @@ function extractMessages(traces = []) {
   return messages
 }
 
-// ── Helper: check if Voiceflow responded with any capture variables ───────────
-// Voiceflow sets variables via 'variables' traces. Map them to lead fields.
+// ── Helper: extract Voiceflow capture variables ───────────────────────────────
 function extractVariables(traces = []) {
   const vars = {}
   for (const trace of traces) {
@@ -34,6 +34,18 @@ function extractVariables(traces = []) {
     }
   }
   return vars
+}
+
+// ── Build Voiceflow config — injects LauncherDesk KB as a runtime variable ───
+// The Voiceflow agent can read {kb_context} in any KB Step or Prompt block.
+function buildVFConfig() {
+  return {
+    tts: false,
+    stripSSML: true,
+    variables: {
+      kb_context: LAUNCHERDESK_KB_SHORT,
+    },
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,18 +62,19 @@ exports.interact = asyncHandler(async (req, res, next) => {
   const { userId, action } = req.body
   if (!userId || !action) return next(new AppError('userId and action are required', 400))
 
-  // Forward the action to Voiceflow Runtime API
+  // Forward the action to Voiceflow Runtime API with KB injected as a variable
   let vfResponse
   try {
     vfResponse = await axios.post(
       `${VF_BASE}/state/user/${encodeURIComponent(userId)}/interact`,
-      { action, config: { tts: false, stripSSML: true } },
+      { action, config: buildVFConfig() },
       {
         headers: {
           Authorization: `Bearer ${VF_API_KEY}`,
           versionID: VF_VERSION,
           'Content-Type': 'application/json',
         },
+        timeout: 15000,
       }
     )
   } catch (err) {
@@ -76,7 +89,6 @@ exports.interact = asyncHandler(async (req, res, next) => {
 
   // ── Persist session to MongoDB ────────────────────────────────────────────
   let session = await ChatSession.findOne({ voiceflowUserId: userId })
-
   if (!session) {
     session = new ChatSession({ voiceflowUserId: userId })
   }
@@ -95,16 +107,12 @@ exports.interact = asyncHandler(async (req, res, next) => {
   if (variables.user_phone || variables.mobile) session.leadMobile = variables.user_phone || variables.mobile
 
   // Auto-create a Lead record once we have at least name + email from the chat
-  if (
-    !session.convertedToLead &&
-    session.leadName &&
-    session.leadEmail
-  ) {
+  if (!session.convertedToLead && session.leadName && session.leadEmail) {
     await Lead.create({
-      name:           session.leadName,
-      email:          session.leadEmail,
-      mobile:         session.leadMobile,
-      source:         'voiceflow-chatbot',
+      name:            session.leadName,
+      email:           session.leadEmail,
+      mobile:          session.leadMobile,
+      source:          'voiceflow-chatbot',
       serviceInterest: variables.service_interest || variables.selected_service,
     })
     session.convertedToLead = true
@@ -139,6 +147,8 @@ exports.deleteSession = asyncHandler(async (req, res, next) => {
     }
   }
 
+  // Clear from DB too
+  await ChatSession.deleteOne({ voiceflowUserId: userId })
   res.json({ success: true, message: 'Session cleared' })
 })
 
