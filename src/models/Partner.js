@@ -1,6 +1,9 @@
 const mongoose = require('mongoose')
 
 const PartnerSchema = new mongoose.Schema({
+  // Linked user account (created on approval or registration)
+  userId:       { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+
   companyName:  { type: String, required: true, trim: true },
   contactName:  { type: String, required: true, trim: true },
   email:        { type: String, required: true, trim: true, lowercase: true },
