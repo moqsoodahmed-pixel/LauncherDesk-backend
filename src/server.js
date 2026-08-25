@@ -17,6 +17,7 @@ const applicationRoutes = require('./routes/applications')
 const marketRoutes      = require('./routes/market')
 const voiceflowRoutes   = require('./routes/voiceflow')
 const adminRoutes       = require('./routes/admin')
+const partnerRoutes     = require('./routes/partners')
 
 // Connect to MongoDB
 connectDB()
@@ -68,6 +69,7 @@ app.use('/api/applications', applicationRoutes)
 app.use('/api/market',       marketRoutes)
 app.use('/api/voiceflow',    voiceflowRoutes)
 app.use('/api/admin',       adminRoutes)
+app.use('/api/partners',    partnerRoutes)
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
