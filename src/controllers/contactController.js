@@ -6,16 +6,19 @@ const { asyncHandler, AppError } = require('../middleware/errorHandler')
 exports.submitContact = asyncHandler(async (req, res, next) => {
   const { name, mobile, email, state, message, whatsappOptin, source, service } = req.body
 
-  if (!name || !mobile || !email || !state) {
-    return next(new AppError('Name, mobile, email and state are required', 400))
+  if (!name || !mobile) {
+    return next(new AppError('Name and mobile are required', 400))
   }
+  // Provide defaults for optional fields so MongoDB validation passes
+  const safeEmail = email || `noemail_${Date.now()}@launcherdesk.internal`
+  const safeState = state || 'Not specified'
 
-  const contact = await Contact.create({ name, mobile, email, state, message, whatsappOptin, source, service })
+  const contact = await Contact.create({ name, mobile, email: safeEmail, state: safeState, message, whatsappOptin, source, service })
 
   // Fire-and-forget emails — don't block the response
   Promise.all([
-    sendEmail({ to: email, ...contactAckEmail(name) }),
-    sendEmail({ to: process.env.SUPPORT_EMAIL, ...contactNotifyEmail({ name, mobile, email, state, message, whatsappOptin, source }) }),
+    ...(email && !safeEmail.includes('noemail_') ? [sendEmail({ to: email, ...contactAckEmail(name) })] : []),
+    sendEmail({ to: process.env.SUPPORT_EMAIL, ...contactNotifyEmail({ name, mobile, email: safeEmail, state: safeState, message, whatsappOptin, source }) }),
   ]).catch(err => console.error('Email error:', err))
 
   res.status(201).json({ success: true, message: 'Enquiry received. An expert will reach out shortly.', data: { id: contact._id } })
