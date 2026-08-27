@@ -2,64 +2,61 @@ const axios       = require('axios')
 const ChatSession = require('../models/ChatSession')
 const Lead        = require('../models/Lead')
 const { asyncHandler, AppError } = require('../middleware/errorHandler')
+const { LAUNCHERDESK_KB } = require('../data/knowledgeBase')
 
-const VF_BASE    = 'https://general-runtime.voiceflow.com'
-const VF_API_KEY = process.env.VOICEFLOW_API_KEY
-const VF_VERSION = process.env.VOICEFLOW_VERSION_ALIAS || 'production'
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY
+const GEMINI_URL     = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`
 
-const FALLBACK_MSG = "Hi! I'm the LauncherDesk AI — your business manager. I can help with company registration, GST, trademark, websites, digital marketing, virtual office, compliance and more. Please WhatsApp us at +91 85488 54859 for immediate assistance."
-
-function extractMessages(traces = []) {
-  const messages = []
-  for (const trace of traces) {
-    if ((trace.type === 'text' || trace.type === 'speak') && trace.payload?.message) {
-      messages.push(trace.payload.message)
-    }
-  }
-  return messages
-}
-
-function extractVariables(traces = []) {
-  const vars = {}
-  for (const trace of traces) {
-    if (trace.type === 'variables') Object.assign(vars, trace.payload)
-  }
-  return vars
-}
+const FALLBACK_MSG = "Hi! I'm the LauncherDesk AI. I can help with company registration, GST, trademark, websites, digital marketing, virtual office and compliance. Please WhatsApp us at +91 85488 54859 for immediate assistance."
 
 function buildTraces(text) {
   return [{ type: 'text', payload: { message: text } }]
 }
 
-async function callVoiceflow(userId, action) {
-  const url = `${VF_BASE}/state/user/${encodeURIComponent(userId)}/interact`
+// ── Call Gemini Free API ──────────────────────────────────────────────────────
+async function callGemini(userMessage, history = []) {
+  // Build conversation history for Gemini
+  const contents = []
 
-  // Log for debugging
-  console.log('[VF] Calling:', url)
-  console.log('[VF] Action:', JSON.stringify(action))
-  console.log('[VF] API Key (first 10):', VF_API_KEY ? VF_API_KEY.substring(0, 10) + '...' : 'MISSING')
-  console.log('[VF] Version:', VF_VERSION)
+  // Add chat history (last 10 turns)
+  for (const msg of history.slice(-10)) {
+    contents.push({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.content }]
+    })
+  }
+
+  // Add current user message
+  contents.push({
+    role: 'user',
+    parts: [{ text: userMessage }]
+  })
 
   const response = await axios.post(
-    url,
-    { action, config: { tts: false, stripSSML: true } },
+    `${GEMINI_URL}?key=${GEMINI_API_KEY}`,
     {
-      headers: {
-        'Authorization':  VF_API_KEY,
-        'versionID':      VF_VERSION,
-        'Content-Type':   'application/json',
-        'accept':         'application/json',
+      system_instruction: {
+        parts: [{ text: LAUNCHERDESK_KB }]
       },
+      contents,
+      generationConfig: {
+        maxOutputTokens: 500,
+        temperature: 0.4,
+      }
+    },
+    {
+      headers: { 'Content-Type': 'application/json' },
       timeout: 15000,
     }
   )
 
-  console.log('[VF] Response status:', response.status)
-  console.log('[VF] Response traces:', JSON.stringify(response.data).substring(0, 300))
-
-  return response.data
+  const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text
+  return text || FALLBACK_MSG
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/voiceflow/interact
+// ─────────────────────────────────────────────────────────────────────────────
 exports.interact = asyncHandler(async (req, res, next) => {
   const { userId, action } = req.body
   if (!userId || !action) return next(new AppError('userId and action are required', 400))
@@ -69,30 +66,10 @@ exports.interact = asyncHandler(async (req, res, next) => {
 
   // ── LAUNCH ────────────────────────────────────────────────────────────────
   if (action.type === 'launch') {
-    let replyText = null
-
-    if (VF_API_KEY) {
-      try {
-        const traces = await callVoiceflow(userId, { type: 'launch' })
-        const msgs   = extractMessages(traces)
-        if (msgs.length > 0) replyText = msgs.join('\n\n')
-        else console.log('[VF] No text traces in launch response, trace types:', traces.map(t => t.type))
-      } catch (err) {
-        console.error('[VF] Launch error status:', err.response?.status)
-        console.error('[VF] Launch error data:', JSON.stringify(err.response?.data))
-        console.error('[VF] Launch error msg:', err.message)
-      }
-    } else {
-      console.warn('[VF] No API key configured')
-    }
-
-    if (!replyText) {
-      replyText = "Hi! I'm the LauncherDesk AI — your business manager. I can help you with company registration, GST, trademark, websites, digital marketing, virtual office, compliance and more. What does your business need today?"
-    }
-
-    session.messages.push({ role: 'bot', content: replyText })
+    const greeting = "Hi! I'm the LauncherDesk AI — your business manager. I can help you with company registration, GST, trademark, websites, digital marketing, virtual office, compliance and more. What does your business need today?"
+    session.messages.push({ role: 'bot', content: greeting })
     await session.save()
-    return res.json({ success: true, traces: buildTraces(replyText) })
+    return res.json({ success: true, traces: buildTraces(greeting) })
   }
 
   // ── TEXT ──────────────────────────────────────────────────────────────────
@@ -100,37 +77,33 @@ exports.interact = asyncHandler(async (req, res, next) => {
     const userText = String(action.payload)
     session.messages.push({ role: 'user', content: userText })
 
-    let replyText = null
+    let replyText = FALLBACK_MSG
 
-    if (VF_API_KEY) {
+    if (GEMINI_API_KEY) {
       try {
-        const traces    = await callVoiceflow(userId, { type: 'text', payload: userText })
-        const msgs      = extractMessages(traces)
-        const variables = extractVariables(traces)
-
-        if (variables.user_name  || variables.name)   session.leadName   = variables.user_name  || variables.name
-        if (variables.user_email || variables.email)  session.leadEmail  = variables.user_email || variables.email
-        if (variables.user_phone || variables.mobile) session.leadMobile = variables.user_phone || variables.mobile
-
-        if (msgs.length > 0) replyText = msgs.join('\n\n')
-        else console.log('[VF] No text in response, traces:', JSON.stringify(traces).substring(0, 200))
+        // Pass history excluding last user message (callGemini adds it)
+        const history = session.messages.slice(0, -1).map(m => ({
+          role: m.role === 'user' ? 'user' : 'model',
+          content: m.content,
+        }))
+        replyText = await callGemini(userText, history)
       } catch (err) {
-        console.error('[VF] Text error status:', err.response?.status)
-        console.error('[VF] Text error data:', JSON.stringify(err.response?.data))
-        console.error('[VF] Text error msg:', err.message)
+        console.error('[Gemini] Error:', err.response?.data || err.message)
+        replyText = FALLBACK_MSG
       }
+    } else {
+      console.warn('[Gemini] No GEMINI_API_KEY configured')
     }
-
-    if (!replyText) replyText = FALLBACK_MSG
 
     session.messages.push({ role: 'bot', content: replyText })
 
+    // Auto-save lead if name + email detected
     if (!session.convertedToLead && session.leadName && session.leadEmail) {
       try {
         await Lead.create({ name: session.leadName, email: session.leadEmail, mobile: session.leadMobile, source: 'chatbot' })
         session.convertedToLead = true
       } catch (e) {
-        console.warn('[VF] Lead create error:', e.message)
+        console.warn('[Gemini] Lead create error:', e.message)
       }
     }
 
@@ -141,25 +114,19 @@ exports.interact = asyncHandler(async (req, res, next) => {
   return res.json({ success: true, traces: [] })
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /api/voiceflow/session/:userId
+// ─────────────────────────────────────────────────────────────────────────────
 exports.deleteSession = asyncHandler(async (req, res, next) => {
   const { userId } = req.params
   if (!userId) return next(new AppError('userId is required', 400))
-
-  if (VF_API_KEY) {
-    try {
-      await axios.delete(
-        `${VF_BASE}/state/user/${encodeURIComponent(userId)}`,
-        { headers: { Authorization: VF_API_KEY, versionID: VF_VERSION } }
-      )
-    } catch (err) {
-      if (err.response?.status !== 404) console.warn('[VF] Delete error:', err.message)
-    }
-  }
-
   await ChatSession.deleteOne({ voiceflowUserId: userId })
   res.json({ success: true, message: 'Session cleared' })
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/voiceflow/sessions (admin)
+// ─────────────────────────────────────────────────────────────────────────────
 exports.getSessions = asyncHandler(async (req, res) => {
   const { page = 1, limit = 20, converted } = req.query
   const filter = {}
