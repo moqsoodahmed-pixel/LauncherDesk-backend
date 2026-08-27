@@ -9,7 +9,6 @@ const VF_VERSION = process.env.VOICEFLOW_VERSION_ALIAS || 'production'
 
 const FALLBACK_MSG = "Hi! I'm the LauncherDesk AI — your business manager. I can help with company registration, GST, trademark, websites, digital marketing, virtual office, compliance and more. Please WhatsApp us at +91 85488 54859 for immediate assistance."
 
-// ── Extract plain text from Voiceflow traces ──────────────────────────────────
 function extractMessages(traces = []) {
   const messages = []
   for (const trace of traces) {
@@ -32,9 +31,15 @@ function buildTraces(text) {
   return [{ type: 'text', payload: { message: text } }]
 }
 
-// ── Call Voiceflow Runtime API ────────────────────────────────────────────────
 async function callVoiceflow(userId, action) {
   const url = `${VF_BASE}/state/user/${encodeURIComponent(userId)}/interact`
+
+  // Log for debugging
+  console.log('[VF] Calling:', url)
+  console.log('[VF] Action:', JSON.stringify(action))
+  console.log('[VF] API Key (first 10):', VF_API_KEY ? VF_API_KEY.substring(0, 10) + '...' : 'MISSING')
+  console.log('[VF] Version:', VF_VERSION)
+
   const response = await axios.post(
     url,
     { action, config: { tts: false, stripSSML: true } },
@@ -43,21 +48,22 @@ async function callVoiceflow(userId, action) {
         'Authorization':  VF_API_KEY,
         'versionID':      VF_VERSION,
         'Content-Type':   'application/json',
+        'accept':         'application/json',
       },
-      timeout: 12000,
+      timeout: 15000,
     }
   )
+
+  console.log('[VF] Response status:', response.status)
+  console.log('[VF] Response traces:', JSON.stringify(response.data).substring(0, 300))
+
   return response.data
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/voiceflow/interact
-// ─────────────────────────────────────────────────────────────────────────────
 exports.interact = asyncHandler(async (req, res, next) => {
   const { userId, action } = req.body
   if (!userId || !action) return next(new AppError('userId and action are required', 400))
 
-  // Load or create session
   let session = await ChatSession.findOne({ voiceflowUserId: userId })
   if (!session) session = new ChatSession({ voiceflowUserId: userId })
 
@@ -67,12 +73,17 @@ exports.interact = asyncHandler(async (req, res, next) => {
 
     if (VF_API_KEY) {
       try {
-        const traces  = await callVoiceflow(userId, { type: 'launch' })
-        const msgs    = extractMessages(traces)
+        const traces = await callVoiceflow(userId, { type: 'launch' })
+        const msgs   = extractMessages(traces)
         if (msgs.length > 0) replyText = msgs.join('\n\n')
+        else console.log('[VF] No text traces in launch response, trace types:', traces.map(t => t.type))
       } catch (err) {
-        console.warn('VF launch error:', err.response?.data || err.message)
+        console.error('[VF] Launch error status:', err.response?.status)
+        console.error('[VF] Launch error data:', JSON.stringify(err.response?.data))
+        console.error('[VF] Launch error msg:', err.message)
       }
+    } else {
+      console.warn('[VF] No API key configured')
     }
 
     if (!replyText) {
@@ -97,14 +108,16 @@ exports.interact = asyncHandler(async (req, res, next) => {
         const msgs      = extractMessages(traces)
         const variables = extractVariables(traces)
 
-        // Capture lead info if Voiceflow collected it
         if (variables.user_name  || variables.name)   session.leadName   = variables.user_name  || variables.name
         if (variables.user_email || variables.email)  session.leadEmail  = variables.user_email || variables.email
         if (variables.user_phone || variables.mobile) session.leadMobile = variables.user_phone || variables.mobile
 
         if (msgs.length > 0) replyText = msgs.join('\n\n')
+        else console.log('[VF] No text in response, traces:', JSON.stringify(traces).substring(0, 200))
       } catch (err) {
-        console.warn('VF text error:', err.response?.data || err.message)
+        console.error('[VF] Text error status:', err.response?.status)
+        console.error('[VF] Text error data:', JSON.stringify(err.response?.data))
+        console.error('[VF] Text error msg:', err.message)
       }
     }
 
@@ -112,13 +125,12 @@ exports.interact = asyncHandler(async (req, res, next) => {
 
     session.messages.push({ role: 'bot', content: replyText })
 
-    // Auto-create Lead if captured name + email from Voiceflow
     if (!session.convertedToLead && session.leadName && session.leadEmail) {
       try {
         await Lead.create({ name: session.leadName, email: session.leadEmail, mobile: session.leadMobile, source: 'chatbot' })
         session.convertedToLead = true
       } catch (e) {
-        console.warn('Lead create error:', e.message)
+        console.warn('[VF] Lead create error:', e.message)
       }
     }
 
@@ -129,9 +141,6 @@ exports.interact = asyncHandler(async (req, res, next) => {
   return res.json({ success: true, traces: [] })
 })
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DELETE /api/voiceflow/session/:userId
-// ─────────────────────────────────────────────────────────────────────────────
 exports.deleteSession = asyncHandler(async (req, res, next) => {
   const { userId } = req.params
   if (!userId) return next(new AppError('userId is required', 400))
@@ -143,7 +152,7 @@ exports.deleteSession = asyncHandler(async (req, res, next) => {
         { headers: { Authorization: VF_API_KEY, versionID: VF_VERSION } }
       )
     } catch (err) {
-      if (err.response?.status !== 404) console.warn('VF delete error:', err.message)
+      if (err.response?.status !== 404) console.warn('[VF] Delete error:', err.message)
     }
   }
 
@@ -151,9 +160,6 @@ exports.deleteSession = asyncHandler(async (req, res, next) => {
   res.json({ success: true, message: 'Session cleared' })
 })
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/voiceflow/sessions (admin)
-// ─────────────────────────────────────────────────────────────────────────────
 exports.getSessions = asyncHandler(async (req, res) => {
   const { page = 1, limit = 20, converted } = req.query
   const filter = {}
@@ -167,9 +173,6 @@ exports.getSessions = asyncHandler(async (req, res) => {
   res.json({ success: true, total, page: Number(page), data: sessions })
 })
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/voiceflow/sessions/:userId (admin)
-// ─────────────────────────────────────────────────────────────────────────────
 exports.getSession = asyncHandler(async (req, res, next) => {
   const session = await ChatSession.findOne({ voiceflowUserId: req.params.userId })
   if (!session) return next(new AppError('Session not found', 404))
