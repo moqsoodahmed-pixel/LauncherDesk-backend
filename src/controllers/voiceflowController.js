@@ -32,7 +32,7 @@ async function callGroq(userMessage, history = []) {
   const response = await axios.post(
     GROQ_URL,
     {
-      model: 'llama3-8b-8192',  // Free, fast model on Groq
+      model: 'llama-3.1-8b-instant',  // Current free model on Groq
       messages,
       max_tokens: 500,
       temperature: 0.4,
