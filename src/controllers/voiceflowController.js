@@ -7,12 +7,14 @@ const VF_BASE    = 'https://general-runtime.voiceflow.com'
 const VF_API_KEY = process.env.VOICEFLOW_API_KEY
 const VF_VERSION = process.env.VOICEFLOW_VERSION_ALIAS || 'production'
 
+const FALLBACK_MSG = "Hi! I'm the LauncherDesk AI — your business manager. I can help with company registration, GST, trademark, websites, digital marketing, virtual office, compliance and more. Please WhatsApp us at +91 85488 54859 for immediate assistance."
+
 // ── Extract plain text from Voiceflow traces ──────────────────────────────────
 function extractMessages(traces = []) {
   const messages = []
   for (const trace of traces) {
     if ((trace.type === 'text' || trace.type === 'speak') && trace.payload?.message) {
-      messages.push({ role: 'bot', content: trace.payload.message, traceType: trace.type })
+      messages.push(trace.payload.message)
     }
   }
   return messages
@@ -30,7 +32,23 @@ function buildTraces(text) {
   return [{ type: 'text', payload: { message: text } }]
 }
 
-const FALLBACK_MSG = "Hi! I'm the LauncherDesk AI — your business manager. I can help with company registration, GST, trademark, websites, digital marketing, virtual office, compliance and more. Please WhatsApp us at +91 85488 54859 for immediate assistance."
+// ── Call Voiceflow Runtime API ────────────────────────────────────────────────
+async function callVoiceflow(userId, action) {
+  const url = `${VF_BASE}/state/user/${encodeURIComponent(userId)}/interact`
+  const response = await axios.post(
+    url,
+    { action, config: { tts: false, stripSSML: true } },
+    {
+      headers: {
+        'Authorization':  VF_API_KEY,
+        'versionID':      VF_VERSION,
+        'Content-Type':   'application/json',
+      },
+      timeout: 12000,
+    }
+  )
+  return response.data
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/voiceflow/interact
@@ -45,24 +63,25 @@ exports.interact = asyncHandler(async (req, res, next) => {
 
   // ── LAUNCH ────────────────────────────────────────────────────────────────
   if (action.type === 'launch') {
-    const greeting = "Hi! I'm the LauncherDesk AI — your business manager. I can help you with company registration, GST, trademark, websites, digital marketing, virtual office, compliance and more. What does your business need today?"
+    let replyText = null
 
-    // Try to launch Voiceflow session too
     if (VF_API_KEY) {
       try {
-        await axios.post(
-          `${VF_BASE}/state/user/${encodeURIComponent(userId)}/interact`,
-          { action: { type: 'launch' }, config: { tts: false, stripSSML: true } },
-          { headers: { Authorization: `Bearer ${VF_API_KEY}`, versionID: VF_VERSION, 'Content-Type': 'application/json' }, timeout: 8000 }
-        )
+        const traces  = await callVoiceflow(userId, { type: 'launch' })
+        const msgs    = extractMessages(traces)
+        if (msgs.length > 0) replyText = msgs.join('\n\n')
       } catch (err) {
-        console.warn('Voiceflow launch error:', err.message)
+        console.warn('VF launch error:', err.response?.data || err.message)
       }
     }
 
-    session.messages.push({ role: 'bot', content: greeting })
+    if (!replyText) {
+      replyText = "Hi! I'm the LauncherDesk AI — your business manager. I can help you with company registration, GST, trademark, websites, digital marketing, virtual office, compliance and more. What does your business need today?"
+    }
+
+    session.messages.push({ role: 'bot', content: replyText })
     await session.save()
-    return res.json({ success: true, traces: buildTraces(greeting) })
+    return res.json({ success: true, traces: buildTraces(replyText) })
   }
 
   // ── TEXT ──────────────────────────────────────────────────────────────────
@@ -72,37 +91,28 @@ exports.interact = asyncHandler(async (req, res, next) => {
 
     let replyText = null
 
-    // Try Voiceflow
     if (VF_API_KEY) {
       try {
-        const vfResponse = await axios.post(
-          `${VF_BASE}/state/user/${encodeURIComponent(userId)}/interact`,
-          { action: { type: 'text', payload: userText }, config: { tts: false, stripSSML: true } },
-          { headers: { Authorization: `Bearer ${VF_API_KEY}`, versionID: VF_VERSION, 'Content-Type': 'application/json' }, timeout: 10000 }
-        )
-        const vfTraces  = vfResponse.data
-        const vfMsgs    = extractMessages(vfTraces)
-        const variables = extractVariables(vfTraces)
+        const traces    = await callVoiceflow(userId, { type: 'text', payload: userText })
+        const msgs      = extractMessages(traces)
+        const variables = extractVariables(traces)
 
+        // Capture lead info if Voiceflow collected it
         if (variables.user_name  || variables.name)   session.leadName   = variables.user_name  || variables.name
         if (variables.user_email || variables.email)  session.leadEmail  = variables.user_email || variables.email
         if (variables.user_phone || variables.mobile) session.leadMobile = variables.user_phone || variables.mobile
 
-        const vfText = vfMsgs.map(m => m.content).join('\n\n')
-        if (vfText) replyText = vfText
+        if (msgs.length > 0) replyText = msgs.join('\n\n')
       } catch (err) {
-        console.warn('Voiceflow text error:', err.message)
+        console.warn('VF text error:', err.response?.data || err.message)
       }
     }
 
-    // Fallback if Voiceflow not configured or failed
-    if (!replyText) {
-      replyText = FALLBACK_MSG
-    }
+    if (!replyText) replyText = FALLBACK_MSG
 
     session.messages.push({ role: 'bot', content: replyText })
 
-    // Auto-create Lead if we captured name + email
+    // Auto-create Lead if captured name + email from Voiceflow
     if (!session.convertedToLead && session.leadName && session.leadEmail) {
       try {
         await Lead.create({ name: session.leadName, email: session.leadEmail, mobile: session.leadMobile, source: 'chatbot' })
@@ -133,7 +143,7 @@ exports.deleteSession = asyncHandler(async (req, res, next) => {
         { headers: { Authorization: VF_API_KEY, versionID: VF_VERSION } }
       )
     } catch (err) {
-      if (err.response?.status !== 404) console.warn('VF session delete error:', err.message)
+      if (err.response?.status !== 404) console.warn('VF delete error:', err.message)
     }
   }
 
