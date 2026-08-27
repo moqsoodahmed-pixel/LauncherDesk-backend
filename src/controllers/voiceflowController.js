@@ -32,7 +32,7 @@ async function callGroq(userMessage, history = []) {
   const response = await axios.post(
     GROQ_URL,
     {
-      model: 'gemma2-9b-it',
+      model: 'openai/gpt-oss-20b',
       messages,
       max_tokens: 500,
       temperature: 0.4,
