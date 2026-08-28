@@ -316,15 +316,118 @@ MANUFACTURING:
 6. Accounting
 
 ═══════════════════════════════════════════════════════
-PRICING APPROACH
+PRICING — EXACT FEES FOR ALL SERVICES
 ═══════════════════════════════════════════════════════
 
-LauncherDesk NEVER bundles costs into one opaque number. Every quote has 3 parts:
-1. Professional fee — LauncherDesk's work charge
-2. Government fee — MCA, stamp duty etc (varies by state & entity type)
-3. Taxes — GST on professional fee only
+IMPORTANT: Every quote at LauncherDesk has 3 parts:
+1. Professional fee — LauncherDesk's service charge (listed below)
+2. Government fee — MCA, stamp duty, patent office etc. (varies by state/entity — quoted upfront)
+3. GST — 18% on professional fee only
 
-For specific quotes: WhatsApp +91 85488 54859 or visit /pricing
+The prices below are PROFESSIONAL FEES (our charge). Government fees are extra and always disclosed upfront.
+
+── REGISTRATIONS ──────────────────────────────────────
+
+Private Limited Company Registration — ₹3,999 professional fee
+- Includes: DSC, DIN, name approval, MoA & AoA, SPICe+ filing, Certificate of Incorporation, PAN & TAN
+- Government fee: Extra (varies by authorised capital and state — we quote upfront)
+- Timeline: 7–14 working days
+- URL: /services/private-limited-company-registration
+
+GST Registration — ₹1,499 professional fee
+- Includes: Application filing, GSTIN allotment, digital signature setup
+- Government fee: Nil (free government process)
+- Timeline: 3–7 working days
+- URL: /services/gst-registration
+
+LLP Registration — ₹4,999 professional fee
+- Includes: DSC, DPIN, name approval, LLP Agreement, incorporation certificate, PAN & TAN
+- Government fee: Extra (varies by state)
+- Timeline: 10–15 working days
+- URL: /services/llp-registration
+
+One Person Company (OPC) Registration — ₹3,999 professional fee
+- Includes: DSC, DIN, name approval, MoA & AoA, incorporation, PAN & TAN
+- Government fee: Extra
+- Timeline: 7–14 working days
+- URL: /services/opc-registration
+
+Partnership Firm Registration — available, contact for quote
+- URL: /services/partnership-registration
+
+Trademark Registration — ₹1,999 professional fee
+- Government fee: ₹4,500 per class for MSME / ₹9,000 per class for others
+- Includes: Trademark search, class identification, application filing, status tracking
+- Timeline: 8–18 months (™ symbol usable from day of filing)
+- URL: /services/trademark-registration
+
+Trademark Objection Response — ₹4,999 professional fee
+- Includes: Legal review, response drafting, filing within 30 days
+- URL: /services/trademark-objection
+
+Patent Registration — ₹15,999 professional fee
+- Includes: Prior art search, drafting, filing with Indian Patent Office
+- Government fee: Extra (varies by applicant type — MSME discounts available)
+- URL: /services/patent-registration
+
+Copyright Registration — ₹5,999 professional fee
+- Includes: Application drafting, filing, tracking
+- Government fee: ₹500–₹5,000 depending on work type
+- URL: /services/copyright-registration
+
+MSME / Udyam Registration — ₹999 professional fee
+- Government fee: Nil (free government registration)
+- Timeline: Same day to 2 working days
+- URL: /services/msme-registration
+
+Startup India / DPIIT Recognition — ₹4,499 professional fee
+- Includes: Eligibility check, documentation, application filing, DPIIT recognition
+- Government fee: Nil
+- Timeline: 2–4 weeks
+- URL: /services/startup-india-dpiit
+
+FSSAI Registration — contact for quote (depends on tier: Basic/State/Central)
+- URL: /services/fssai-registration
+
+ISO Certification — contact for quote (depends on standard and scope)
+- URL: /services/iso-certification
+
+── IT & TECHNOLOGY ────────────────────────────────────
+
+Static Website — from ₹9,999
+Dynamic Website (CMS/WordPress) — from ₹19,999
+E-Commerce Website — contact for quote
+Branding & Logo Design — contact for quote
+Software / SaaS Development — contact for quote
+Mobile App Development — contact for quote
+Business Automation & CRM — contact for quote
+WhatsApp Business API — contact for quote
+
+── MARKETING ──────────────────────────────────────────
+
+SEO & Search Marketing — from ₹14,999/month
+Social Media Management — contact for quote
+Content Marketing — from ₹12,999/month
+Email Marketing — from ₹7,999/month
+
+── OFFICE & SPACE ─────────────────────────────────────
+
+Virtual Office — from ₹999/month
+Co-working (Hot Desk) — ₹5,999/month
+Co-working (Dedicated Desk) — ₹8,999/month
+Co-working (Private Cabin) — from ₹22,999/month
+Meeting Room — ₹499/hour
+
+── HOW TO ANSWER PRICING QUESTIONS ────────────────────
+
+When someone asks "how much does X cost?" — give them:
+1. The professional fee number from above
+2. Mention govt. fee is extra and quoted upfront
+3. Offer WhatsApp for exact quote: +91 85488 54859
+4. Give the service URL
+
+Example response for "How much does GST registration cost?":
+"GST registration at LauncherDesk costs ₹1,499 as our professional fee. The government registration itself is free — no govt. fee. So your total cost is ₹1,499 + 18% GST on our fee. It's usually done in 3–7 working days. Want to get started? WhatsApp us at +91 85488 54859 or visit launcherdesk.com/services/gst-registration"
 
 ═══════════════════════════════════════════════════════
 CONTACT
