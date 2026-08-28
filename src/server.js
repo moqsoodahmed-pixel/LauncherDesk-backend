@@ -26,15 +26,27 @@ const app = express()
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 
-// CORS
+// CORS — allow all LauncherDesk domains + localhost dev
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://launcherdesk.com',
+  'https://www.launcherdesk.com',
+  'https://launcherdesk.net',
+  'https://www.launcherdesk.net',
+  'https://launcherdesk-frontend-7wj.pages.dev',
+  process.env.CLIENT_URL,
+].filter(Boolean)
+
 app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'https://launcherdesk-frontend-7wj.pages.dev',
-    'https://launcherdesk.net',
-    'https://www.launcherdesk.net',
-    process.env.CLIENT_URL,
-  ].filter(Boolean),
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true)
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true)
+    // Allow any *.pages.dev or *.launcherdesk.* preview deploy
+    if (/\.pages\.dev$/.test(origin) || /launcherdesk\.(com|net)$/.test(origin)) return callback(null, true)
+    callback(new Error(`CORS: origin ${origin} not allowed`))
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
 }))
@@ -68,8 +80,8 @@ app.use('/api/faqs',         faqRoutes)
 app.use('/api/applications', applicationRoutes)
 app.use('/api/market',       marketRoutes)
 app.use('/api/voiceflow',    voiceflowRoutes)
-app.use('/api/admin',       adminRoutes)
-app.use('/api/partners',    partnerRoutes)
+app.use('/api/admin',        adminRoutes)
+app.use('/api/partners',     partnerRoutes)
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {

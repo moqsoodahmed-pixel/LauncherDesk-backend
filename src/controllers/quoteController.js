@@ -1,4 +1,5 @@
 const Quote        = require('../models/Quote')
+const Lead         = require('../models/Lead')
 const { sendEmail, quoteNotifyEmail } = require('../config/email')
 const { asyncHandler, AppError }      = require('../middleware/errorHandler')
 
@@ -12,8 +13,27 @@ exports.submitQuote = asyncHandler(async (req, res, next) => {
 
   const quote = await Quote.create({ name, email, mobile, state, serviceSlug, serviceTitle, businessType, additionalInfo })
 
-  sendEmail({ to: process.env.SUPPORT_EMAIL, ...quoteNotifyEmail({ name, email, mobile, state, serviceSlug, serviceTitle, businessType, additionalInfo }) })
-    .catch(err => console.error('Email error:', err))
+  // Also create a Lead so it shows in Leads admin panel
+  try {
+    await Lead.create({
+      name,
+      email,
+      mobile,
+      state,
+      source:          'quote-request',
+      serviceInterest: serviceTitle || serviceSlug,
+      businessType:    businessType || undefined,
+      message:         additionalInfo || undefined,
+      status:          'new',
+    })
+  } catch (leadErr) {
+    console.error('Lead mirror error (quote):', leadErr.message)
+  }
+
+  if (process.env.SUPPORT_EMAIL) {
+    sendEmail({ to: process.env.SUPPORT_EMAIL, ...quoteNotifyEmail({ name, email, mobile, state, serviceSlug, serviceTitle, businessType, additionalInfo }) })
+      .catch(err => console.error('Email error:', err))
+  }
 
   res.status(201).json({ success: true, message: "Quote request received. We'll be in touch shortly.", data: { id: quote._id } })
 })

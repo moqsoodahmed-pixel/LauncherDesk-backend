@@ -1,4 +1,5 @@
 const Contact      = require('../models/Contact')
+const Lead         = require('../models/Lead')
 const { sendEmail, contactAckEmail, contactNotifyEmail } = require('../config/email')
 const { asyncHandler, AppError } = require('../middleware/errorHandler')
 
@@ -13,12 +14,32 @@ exports.submitContact = asyncHandler(async (req, res, next) => {
   const safeEmail = email || `noemail_${Date.now()}@launcherdesk.internal`
   const safeState = state || 'Not specified'
 
-  const contact = await Contact.create({ name, mobile, email: safeEmail, state: safeState, message, whatsappOptin, source, service })
+  // Save contact enquiry
+  const contact = await Contact.create({
+    name, mobile, email: safeEmail, state: safeState, message, whatsappOptin, source, service
+  })
+
+  // Also create a Lead record so it appears in the Leads admin panel
+  try {
+    await Lead.create({
+      name,
+      email:           safeEmail,
+      mobile,
+      state:           safeState,
+      message,
+      source:          source || 'contact-page',
+      serviceInterest: service || undefined,
+      status:          'new',
+    })
+  } catch (leadErr) {
+    // Non-blocking — lead creation failure should not fail the contact submission
+    console.error('Lead mirror error:', leadErr.message)
+  }
 
   // Fire-and-forget emails — don't block the response
   Promise.all([
     ...(email && !safeEmail.includes('noemail_') ? [sendEmail({ to: email, ...contactAckEmail(name) })] : []),
-    sendEmail({ to: process.env.SUPPORT_EMAIL, ...contactNotifyEmail({ name, mobile, email: safeEmail, state: safeState, message, whatsappOptin, source }) }),
+    ...(process.env.SUPPORT_EMAIL ? [sendEmail({ to: process.env.SUPPORT_EMAIL, ...contactNotifyEmail({ name, mobile, email: safeEmail, state: safeState, message, whatsappOptin, source }) })] : []),
   ]).catch(err => console.error('Email error:', err))
 
   res.status(201).json({ success: true, message: 'Enquiry received. An expert will reach out shortly.', data: { id: contact._id } })
