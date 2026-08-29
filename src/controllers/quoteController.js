@@ -1,6 +1,6 @@
 const Quote        = require('../models/Quote')
 const Lead         = require('../models/Lead')
-const { sendEmail, quoteNotifyEmail } = require('../config/email')
+const { sendEmail, quoteNotifyEmail, quoteAckEmail } = require('../config/email')
 const { asyncHandler, AppError }      = require('../middleware/errorHandler')
 
 // POST /api/quotes
@@ -30,10 +30,12 @@ exports.submitQuote = asyncHandler(async (req, res, next) => {
     console.error('Lead mirror error (quote):', leadErr.message)
   }
 
-  if (process.env.SUPPORT_EMAIL) {
-    sendEmail({ to: process.env.SUPPORT_EMAIL, ...quoteNotifyEmail({ name, email, mobile, state, serviceSlug, serviceTitle, businessType, additionalInfo }) })
-      .catch(err => console.error('Email error:', err))
-  }
+  // Fire both emails — notify admin + ack customer
+  const emails = [
+    sendEmail({ to: process.env.SUPPORT_EMAIL, ...quoteNotifyEmail({ name, email, mobile, state, serviceSlug, serviceTitle, businessType, additionalInfo }) }),
+    sendEmail({ to: email, ...quoteAckEmail(name, serviceTitle || serviceSlug) }),
+  ]
+  Promise.all(emails).catch(err => console.error('Email error:', err))
 
   res.status(201).json({ success: true, message: "Quote request received. We'll be in touch shortly.", data: { id: quote._id } })
 })

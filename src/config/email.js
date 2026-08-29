@@ -59,6 +59,33 @@ const contactNotifyEmail = (data) => ({
   `,
 })
 
+const quoteAckEmail = (name, serviceTitle) => ({
+  subject: `We received your quote request — LauncherDesk`,
+  html: `
+    <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#1a2b3c">
+      <div style="background:linear-gradient(135deg,#1A2F4E,#1D6FE0);padding:32px 28px;border-radius:12px 12px 0 0;text-align:center">
+        <h1 style="color:#fff;font-size:22px;margin:0">Quote Request Received ✅</h1>
+      </div>
+      <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px">
+        <p style="font-size:16px;color:#1a2b3c">Hi <strong>${name}</strong>,</p>
+        <p style="font-size:15px;color:#374151;line-height:1.7">Thank you for requesting a quote for <strong>${serviceTitle || 'our service'}</strong>. We have received your request and one of our experts will contact you within <strong>1 business day</strong> with a clear, itemised quote.</p>
+        <div style="background:#EFF6FF;border-left:4px solid #1D6FE0;border-radius:6px;padding:16px 18px;margin:20px 0">
+          <p style="margin:0;font-size:14px;color:#1E40AF;font-weight:600">What happens next?</p>
+          <ul style="margin:8px 0 0;padding-left:18px;color:#1D4ED8;font-size:14px;line-height:1.8">
+            <li>Our expert will review your requirement</li>
+            <li>We will send you a detailed, transparent quote</li>
+            <li>Professional fee + Govt. fee + Taxes — shown separately</li>
+            <li>No hidden charges, no commitment until you approve</li>
+          </ul>
+        </div>
+        <p style="font-size:14px;color:#64748B">Need something urgent? WhatsApp us directly at <a href="https://wa.me/918548854859" style="color:#1D6FE0;font-weight:600">+91 85488 54859</a></p>
+        <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0"/>
+        <p style="font-size:12px;color:#94A3B8;text-align:center">LauncherDesk — Startups Made Easy | <a href="https://launcherdesk.in" style="color:#1D6FE0">launcherdesk.in</a></p>
+      </div>
+    </div>
+  `,
+})
+
 const quoteNotifyEmail = (data) => ({
   subject: `New Quote Request for ${data.serviceTitle} — LauncherDesk`,
   html: `
@@ -77,4 +104,4 @@ const quoteNotifyEmail = (data) => ({
   `,
 })
 
-module.exports = { sendEmail, contactAckEmail, contactNotifyEmail, quoteNotifyEmail }
+module.exports = { sendEmail, contactAckEmail, contactNotifyEmail, quoteNotifyEmail, quoteAckEmail }
