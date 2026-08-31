@@ -43,18 +43,26 @@ const sendEmail = async ({ to, subject, html, text, attachments, fromName, fromE
     }))
   }
 
-  const response = await axios.post(
-    'https://api.brevo.com/v3/smtp/email',
-    payload,
-    {
-      headers: {
-        'api-key':      process.env.BREVO_API_KEY,
-        'Content-Type': 'application/json',
-        'Accept':       'application/json',
-      },
-    }
-  )
+  let response
+  try {
+    response = await axios.post(
+      'https://api.brevo.com/v3/smtp/email',
+      payload,
+      {
+        headers: {
+          'api-key':      process.env.BREVO_API_KEY,
+          'Content-Type': 'application/json',
+          'Accept':       'application/json',
+        },
+      }
+    )
+  } catch (err) {
+    const detail = err?.response?.data
+    console.error('[Brevo] Send failed:', JSON.stringify(detail || err.message))
+    throw new Error(detail?.message || err.message)
+  }
 
+  console.log('[Brevo] Email sent, messageId:', response.data?.messageId)
   return response.data
 }
 
