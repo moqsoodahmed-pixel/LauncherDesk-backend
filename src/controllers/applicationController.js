@@ -62,13 +62,17 @@ exports.submitApplication = asyncHandler(async (req, res, next) => {
     ? [{ filename: req.file.originalname, content: req.file.buffer, contentType: req.file.mimetype }]
     : []
 
-  // ── Send Email 1: Full application → hr@launcherdesk.com
-  //    fromEmail must be a Brevo-verified sender address
+  const verifiedSender = process.env.EMAIL_FROM_ADDR || 'noreply@launcherdesk.in'
+
+  // ── Email 1: Full application details + resume → hr@launcherdesk.com
+  //    FROM: verified Brevo sender (LauncherDesk Careers)
+  //    REPLY-TO: applicant's email — so HR can just hit Reply to contact them
   try {
     await sendEmail({
       to:        'hr@launcherdesk.com',
-      fromName:  `${firstName} ${lastName} via LauncherDesk`,
-      fromEmail: process.env.EMAIL_FROM_ADDR || 'noreply@launcherdesk.in',
+      fromName:  'LauncherDesk Careers',
+      fromEmail: verifiedSender,
+      replyTo:   { name: `${firstName} ${lastName}`, email },
       subject:   applicationNotifyEmail(emailData).subject,
       html:      applicationNotifyEmail(emailData).html,
       attachments,
@@ -76,15 +80,15 @@ exports.submitApplication = asyncHandler(async (req, res, next) => {
     console.log('[Application] HR notification sent to hr@launcherdesk.com ✓')
   } catch (err) {
     console.error('[Application] HR email FAILED:', err?.response?.data || err.message)
-    // Don't block — still send ack and return success to user
   }
 
-  // ── Send Email 2: Acknowledgement → applicant
+  // ── Email 2: Acknowledgement → applicant
+  //    FROM: verified Brevo sender (LauncherDesk Careers)
   try {
     await sendEmail({
       to:        email,
       fromName:  'LauncherDesk Careers',
-      fromEmail: process.env.EMAIL_FROM_ADDR || 'noreply@launcherdesk.in',
+      fromEmail: verifiedSender,
       subject:   applicationAckEmail(firstName, role || 'General').subject,
       html:      applicationAckEmail(firstName, role || 'General').html,
     })

@@ -21,7 +21,7 @@ const axios = require('axios')
  * @param {string}  [opts.text]        Plain-text fallback (optional)
  * @param {Array}   [opts.attachments] [{ filename, content (Buffer), contentType }]
  */
-const sendEmail = async ({ to, subject, html, text, attachments, fromName, fromEmail }) => {
+const sendEmail = async ({ to, subject, html, text, attachments, fromName, fromEmail, replyTo }) => {
   const payload = {
     sender: {
       name:  fromName  || process.env.EMAIL_FROM_NAME || 'LauncherDesk',
@@ -30,7 +30,9 @@ const sendEmail = async ({ to, subject, html, text, attachments, fromName, fromE
     to: [{ email: to }],
     subject,
     htmlContent: html,
-    ...(text ? { textContent: text } : {}),
+    ...(text    ? { textContent: text } : {}),
+    // replyTo lets HR hit Reply and email the applicant directly
+    ...(replyTo ? { replyTo: { name: replyTo.name, email: replyTo.email } } : {}),
   }
 
   // Brevo attachments: base64-encode the Buffer
