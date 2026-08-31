@@ -2,6 +2,7 @@ const Application = require('../models/Application')
 const multer      = require('multer')
 const path        = require('path')
 const { asyncHandler, AppError } = require('../middleware/errorHandler')
+const { sendEmail, applicationNotifyEmail, applicationAckEmail } = require('../config/email')
 
 // Multer storage for resumes
 const storage = multer.diskStorage({
@@ -10,7 +11,7 @@ const storage = multer.diskStorage({
 })
 const upload = multer({
   storage,
-  limits: { fileSize: Number(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024 },
+  limits: { fileSize: Number(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowed = /pdf|doc|docx/
     allowed.test(path.extname(file.originalname).toLowerCase())
@@ -22,13 +23,57 @@ exports.uploadResume = upload.single('resume')
 
 // POST /api/applications
 exports.submitApplication = asyncHandler(async (req, res, next) => {
-  const { name, email, mobile, role, message } = req.body
-  if (!name || !email || !mobile) return next(new AppError('Name, email and mobile are required', 400))
+  const {
+    firstName, lastName, email, phone, city,
+    role, experience, education, currentCompany,
+    linkedIn, coverLetter,
+  } = req.body
+
+  if (!firstName || !lastName || !email || !phone) {
+    return next(new AppError('First name, last name, email and phone are required', 400))
+  }
 
   const resumeUrl = req.file ? `/uploads/resumes/${req.file.filename}` : undefined
-  const app       = await Application.create({ name, email, mobile, role, message, resumeUrl })
 
-  res.status(201).json({ success: true, message: "Application received — we'll be in touch!", data: { id: app._id } })
+  // Save to DB
+  const app = await Application.create({
+    name:      `${firstName} ${lastName}`,
+    email,
+    mobile:    phone,
+    role:      role || 'General',
+    message:   coverLetter || '',
+    resumeUrl,
+  })
+
+  // Build email data object
+  const emailData = {
+    firstName, lastName, email, phone, city,
+    role: role || 'General',
+    experience, education, currentCompany,
+    linkedIn, coverLetter, resumeUrl,
+  }
+
+  // Send emails (fire-and-forget — don't block the response)
+  Promise.all([
+    // Notify HR
+    sendEmail({
+      to:      'hr@launcherdesk.com',
+      subject: applicationNotifyEmail(emailData).subject,
+      html:    applicationNotifyEmail(emailData).html,
+    }),
+    // Acknowledge applicant
+    sendEmail({
+      to:      email,
+      subject: applicationAckEmail(firstName, role || 'General').subject,
+      html:    applicationAckEmail(firstName, role || 'General').html,
+    }),
+  ]).catch(err => console.error('Application email error:', err.message))
+
+  res.status(201).json({
+    success: true,
+    message: "Application received — we'll review it and be in touch within 3–5 business days!",
+    data: { id: app._id },
+  })
 })
 
 // GET /api/applications  (admin)
