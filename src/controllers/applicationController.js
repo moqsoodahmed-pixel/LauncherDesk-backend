@@ -4,19 +4,19 @@ const path        = require('path')
 const { asyncHandler, AppError } = require('../middleware/errorHandler')
 const { sendEmail, applicationNotifyEmail, applicationAckEmail } = require('../config/email')
 
-// Multer storage for resumes
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, path.join(__dirname, '../../uploads/resumes')),
-  filename:    (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/\s/g, '-')}`),
-})
+// ── Use memoryStorage so the file is available as a Buffer in req.file.buffer
+//    This means we can attach it directly to the email without relying on
+//    Railway's ephemeral filesystem (files there disappear on every redeploy).
 const upload = multer({
-  storage,
-  limits: { fileSize: Number(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024 },
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
   fileFilter: (_req, file, cb) => {
-    const allowed = /pdf|doc|docx/
-    allowed.test(path.extname(file.originalname).toLowerCase())
-      ? cb(null, true)
-      : cb(new Error('Only PDF and Word documents allowed for resume'))
+    const ext = path.extname(file.originalname).toLowerCase()
+    if (['.pdf', '.doc', '.docx'].includes(ext)) {
+      cb(null, true)
+    } else {
+      cb(new Error('Only PDF, DOC or DOCX files are accepted for resumes'))
+    }
   },
 })
 exports.uploadResume = upload.single('resume')
@@ -33,46 +33,56 @@ exports.submitApplication = asyncHandler(async (req, res, next) => {
     return next(new AppError('First name, last name, email and phone are required', 400))
   }
 
-  const resumeUrl = req.file ? `/uploads/resumes/${req.file.filename}` : undefined
+  const hasResume  = !!req.file
+  const resumeName = hasResume ? req.file.originalname : null
 
-  // Save to DB
-  const app = await Application.create({
-    name:      `${firstName} ${lastName}`,
+  // Save to DB (no resumeUrl stored since we use memoryStorage)
+  await Application.create({
+    name:    `${firstName} ${lastName}`,
     email,
-    mobile:    phone,
-    role:      role || 'General',
-    message:   coverLetter || '',
-    resumeUrl,
+    mobile:  phone,
+    role:    role || 'General',
+    message: coverLetter || '',
   })
 
-  // Build email data object
+  // Build data object for email templates
   const emailData = {
     firstName, lastName, email, phone, city,
     role: role || 'General',
     experience, education, currentCompany,
-    linkedIn, coverLetter, resumeUrl,
+    linkedIn, coverLetter,
+    resumeName, // shown in email body
   }
 
-  // Send emails (fire-and-forget — don't block the response)
+  // Build nodemailer attachment if resume was uploaded
+  const attachments = hasResume
+    ? [{
+        filename:    req.file.originalname,
+        content:     req.file.buffer,       // Buffer from memoryStorage
+        contentType: req.file.mimetype,
+      }]
+    : []
+
+  // Send emails (fire-and-forget — never block the HTTP response)
   Promise.all([
-    // Notify HR
+    // 1. Full application details + resume attached → HR inbox
     sendEmail({
-      to:      'hr@launcherdesk.com',
-      subject: applicationNotifyEmail(emailData).subject,
-      html:    applicationNotifyEmail(emailData).html,
+      to:          'hr@launcherdesk.com',
+      subject:     applicationNotifyEmail(emailData).subject,
+      html:        applicationNotifyEmail(emailData).html,
+      attachments, // resume file attached here
     }),
-    // Acknowledge applicant
+    // 2. Acknowledgement → applicant's inbox (no attachment needed)
     sendEmail({
       to:      email,
       subject: applicationAckEmail(firstName, role || 'General').subject,
       html:    applicationAckEmail(firstName, role || 'General').html,
     }),
-  ]).catch(err => console.error('Application email error:', err.message))
+  ]).catch(err => console.error('[Application email error]', err.message))
 
   res.status(201).json({
     success: true,
     message: "Application received — we'll review it and be in touch within 3–5 business days!",
-    data: { id: app._id },
   })
 })
 
