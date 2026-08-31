@@ -65,18 +65,24 @@ exports.submitApplication = asyncHandler(async (req, res, next) => {
 
   // Send emails (fire-and-forget — never block the HTTP response)
   Promise.all([
-    // 1. Full application details + resume attached → HR inbox
+    // 1. Full application + CV → HR inbox
+    //    FROM: applicant's email  →  so HR sees it as a direct email from the candidate
     sendEmail({
       to:          'hr@launcherdesk.com',
+      fromName:    `${firstName} ${lastName}`,   // applicant's name in From field
+      fromEmail:   process.env.EMAIL_FROM_ADDR,  // must be Brevo-verified sender
       subject:     applicationNotifyEmail(emailData).subject,
       html:        applicationNotifyEmail(emailData).html,
-      attachments, // resume file attached here
+      attachments,
     }),
-    // 2. Acknowledgement → applicant's inbox (no attachment needed)
+    // 2. Acknowledgement → applicant's own inbox
+    //    FROM: LauncherDesk verified sender
     sendEmail({
-      to:      email,
-      subject: applicationAckEmail(firstName, role || 'General').subject,
-      html:    applicationAckEmail(firstName, role || 'General').html,
+      to:        email,
+      fromName:  'LauncherDesk Careers',
+      fromEmail: process.env.EMAIL_FROM_ADDR,
+      subject:   applicationAckEmail(firstName, role || 'General').subject,
+      html:      applicationAckEmail(firstName, role || 'General').html,
     }),
   ]).catch(err => console.error('[Application email error]', err.message))
 

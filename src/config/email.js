@@ -21,11 +21,11 @@ const axios = require('axios')
  * @param {string}  [opts.text]        Plain-text fallback (optional)
  * @param {Array}   [opts.attachments] [{ filename, content (Buffer), contentType }]
  */
-const sendEmail = async ({ to, subject, html, text, attachments }) => {
+const sendEmail = async ({ to, subject, html, text, attachments, fromName, fromEmail }) => {
   const payload = {
     sender: {
-      name:  process.env.EMAIL_FROM_NAME  || 'LauncherDesk',
-      email: process.env.EMAIL_FROM_ADDR  || 'noreply@launcherdesk.in',
+      name:  fromName  || process.env.EMAIL_FROM_NAME || 'LauncherDesk',
+      email: fromEmail || process.env.EMAIL_FROM_ADDR || 'noreply@launcherdesk.in',
     },
     to: [{ email: to }],
     subject,
