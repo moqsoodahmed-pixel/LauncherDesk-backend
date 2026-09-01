@@ -19,7 +19,7 @@ const voiceflowRoutes   = require('./routes/voiceflow')
 const adminRoutes       = require('./routes/admin')
 const partnerRoutes     = require('./routes/partners')
 // const paymentRoutes = require('./routes/payments') // push payments.js to repo first
-const salesRoutes   = require('./routes/sales')     // push sales.js to repo first
+// const salesRoutes   = require('./routes/sales')     // push sales.js to repo first
 
 // Connect to MongoDB
 connectDB()
@@ -82,7 +82,7 @@ app.use('/api/faqs',         faqRoutes)
 app.use('/api/applications', applicationRoutes)
 app.use('/api/market',       marketRoutes)
 // app.use('/api/payments', paymentRoutes)
-app.use('/api/sales',    salesRoutes)
+// app.use('/api/sales',    salesRoutes)
 app.use('/api/voiceflow',    voiceflowRoutes)
 app.use('/api/admin',        adminRoutes)
 app.use('/api/partners',     partnerRoutes)
