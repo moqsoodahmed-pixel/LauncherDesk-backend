@@ -16,6 +16,9 @@ const contactSchema = new mongoose.Schema(
       default: 'new',
     },
     notes: { type: String },  // internal CRM notes
+    assignedTo:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    followUpDate: { type: Date },
+    lastContactedAt: { type: Date },
   },
   { timestamps: true }
 )
