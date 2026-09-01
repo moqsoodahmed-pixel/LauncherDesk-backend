@@ -174,7 +174,7 @@ const applicationNotifyEmail = (data) => ({
             : `<tr style="background:#F8FAFF"><td style="padding:10px 12px;font-weight:700;border:1px solid #e2e8f0;font-size:13px">Resume</td><td style="padding:10px 12px;border:1px solid #e2e8f0;font-size:13px;color:#94A3B8">Not uploaded</td></tr>`
           }
         </table>
-        <p style="font-size:12px;color:#94A3B8;text-align:center;margin-top:20px">Submitted via LauncherDesk Careers · <a href="https://launcherdesk.in/company/careers" style="color:#1D6FE0">launcherdesk.in/company/careers</a></p>
+        <p style="font-size:12px;color:#94A3B8;text-align:center;margin-top:20px">Submitted via LauncherDesk Careers · <a href="https://launcherdesk.in/careers" style="color:#1D6FE0">launcherdesk.in/careers</a></p>
       </div>
     </div>
   `,
