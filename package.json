@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "seed:admin": "node src/scripts/seedAdmin.js"
+    "seed:admin": "node src/scripts/seedAdmin.js",
+    "test": "node node_modules/jest/bin/jest.js --runInBand --forceExit"
   },
   "dependencies": {
     "axios": "^1.9.0",
@@ -15,17 +16,35 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
+    "express-session": "^1.19.0",
     "express-validator": "^7.2.1",
+    "google-auth-library": "^11.0.2",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.9.0",
     "multer": "^1.4.5-lts.1",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
     "razorpay": "^2.9.5"
   },
   "devDependencies": {
-    "nodemon": "^3.1.9"
+    "jest": "^29.0.0",
+    "nodemon": "^3.1.9",
+    "supertest": "^6.0.0"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/*.test.js"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/"
+    ],
+    "testTimeout": 15000,
+    "verbose": true,
+    "forceExit": true
   }
 }
