@@ -121,7 +121,7 @@ const quoteAckEmail = (name, serviceTitle) => ({
             <li>No hidden charges, no commitment until you approve</li>
           </ul>
         </div>
-        <p style="font-size:14px;color:#64748B">Need something urgent? WhatsApp us at <a href="https://wa.me/918548854859" style="color:#1D6FE0;font-weight:600">+91 85488 54859</a></p>
+        <p style="font-size:14px;color:#64748B">Need something urgent? WhatsApp us at <a href="https://wa.me/918548854859?text=Hi%20LauncherDesk%2C%20I%20have%20a%20query%20regarding%20my%20quote." style="color:#1D6FE0;font-weight:600">+91 85488 54859</a></p>
         <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0"/>
         <p style="font-size:12px;color:#94A3B8;text-align:center">LauncherDesk — Startups Made Easy | <a href="https://launcherdesk.in" style="color:#1D6FE0">launcherdesk.in</a></p>
       </div>
@@ -203,7 +203,7 @@ const applicationAckEmail = (firstName, role) => ({
         </div>
         <p style="font-size:14px;color:#64748B">
           Questions? Email us at <a href="mailto:hr@launcherdesk.com" style="color:#1D6FE0;font-weight:600">hr@launcherdesk.com</a>
-          or WhatsApp <a href="https://wa.me/918548854859" style="color:#1D6FE0;font-weight:600">+91 85488 54859</a>
+          or WhatsApp <a href="https://wa.me/918548854859?text=Hi%20LauncherDesk%2C%20I%20have%20a%20query%20regarding%20my%20job%20application." style="color:#1D6FE0;font-weight:600">+91 85488 54859</a>
         </p>
         <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0"/>
         <p style="font-size:12px;color:#94A3B8;text-align:center">
