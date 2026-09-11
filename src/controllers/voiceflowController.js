@@ -10,17 +10,47 @@ const { LAUNCHERDESK_KB } = require('../data/knowledgeBase')
  */
 const GROQ_API_KEY = process.env.GROQ_API_KEY
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
-const GROQ_MODEL = 'openai/gpt-oss-120b'
+const PRIMARY_MODEL = 'openai/gpt-oss-120b'
+const FALLBACK_MODEL = 'openai/gpt-oss-20b'
 
-const FALLBACK_MSG = "Hi! I'm Sneha, the LauncherDesk business assistant. I can help with company registration, GST, trademark, websites, digital marketing, virtual office and compliance. Please WhatsApp us at +91 85488 54859 for immediate assistance."
+const FALLBACK_MSG = "Hi! I'm Sneha from LauncherDesk. How can I help your business today? Feel free to ask about our services, pricing, or message us on WhatsApp at +91 85488 54859."
 
 function buildTraces(text) {
   return [{ type: 'text', payload: { message: text } }]
 }
 
+async function callGroqSingle(model, messages, groqKey) {
+  const payload = {
+    model,
+    messages,
+    max_completion_tokens: 500,
+    temperature: 0.4,
+  }
+  if (model === PRIMARY_MODEL) {
+    payload.reasoning_effort = 'low'
+  }
+
+  const response = await axios.post(
+    GROQ_URL,
+    payload,
+    {
+      headers: {
+        'Authorization': `Bearer ${groqKey}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 15000,
+    }
+  )
+
+  return response.data?.choices?.[0]?.message?.content?.trim() || null
+}
+
 async function callGroq(userMessage, history = []) {
+  const groqKey = process.env.GROQ_API_KEY || GROQ_API_KEY
+  if (!groqKey) return null
+
   const messages = [{ role: 'system', content: LAUNCHERDESK_KB }]
-  for (const msg of history.slice(-8)) {
+  for (const msg of history.slice(-6)) {
     messages.push({
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content,
@@ -28,25 +58,23 @@ async function callGroq(userMessage, history = []) {
   }
   messages.push({ role: 'user', content: userMessage })
 
-  const response = await axios.post(
-    GROQ_URL,
-    {
-      model: GROQ_MODEL,
-      messages,
-      max_tokens: 350,
-      temperature: 0.5,
-    },
-    {
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY || GROQ_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      timeout: 20000,
-    }
-  )
+  // Try primary 120b
+  try {
+    const text = await callGroqSingle(PRIMARY_MODEL, messages, groqKey)
+    if (text) return text
+  } catch (err) {
+    console.warn(`[Groq] ${PRIMARY_MODEL} error:`, err.response?.status, err.response?.data?.error?.message || err.message)
+  }
 
-  const text = response.data?.choices?.[0]?.message?.content
-  return text || null
+  // Fallback to 20b
+  try {
+    const text = await callGroqSingle(FALLBACK_MODEL, messages, groqKey)
+    if (text) return text
+  } catch (err2) {
+    console.warn(`[Groq] ${FALLBACK_MODEL} error:`, err2.response?.status, err2.response?.data?.error?.message || err2.message)
+  }
+
+  return null
 }
 
 exports.interact = asyncHandler(async (req, res, next) => {
@@ -57,7 +85,7 @@ exports.interact = asyncHandler(async (req, res, next) => {
   if (!session) session = new ChatSession({ voiceflowUserId: userId })
 
   if (action.type === 'launch') {
-    const greeting = "Hi! I'm Sneha, your LauncherDesk business assistant. I can help you with company registration, GST, trademark, websites, digital marketing, virtual office, compliance and more. What does your business need today?"
+    const greeting = "Hi! I'm Sneha, your LauncherDesk business assistant. How can I help you today?"
     session.messages.push({ role: 'bot', content: greeting })
     await session.save()
     return res.json({ success: true, traces: buildTraces(greeting) })
