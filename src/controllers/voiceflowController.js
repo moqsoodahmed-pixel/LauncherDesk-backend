@@ -4,8 +4,14 @@ const Lead = require('../models/Lead')
 const { asyncHandler, AppError } = require('../middleware/errorHandler')
 const { LAUNCHERDESK_KB } = require('../data/knowledgeBase')
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+/**
+ * AI backend using Google Gemini 2.0 Flash
+ * FREE: 1,500 requests/day, no credit card needed
+ * Get key: https://aistudio.google.com/apikey
+ * Env var: GEMINI_API_KEY
+ */
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`
 
 const FALLBACK_MSG = "Hi! I'm the LauncherDesk AI. I can help with company registration, GST, trademark, websites, digital marketing, virtual office and compliance. Please WhatsApp us at +91 85488 54859 for immediate assistance."
 
@@ -13,35 +19,38 @@ function buildTraces(text) {
   return [{ type: 'text', payload: { message: text } }]
 }
 
-async function callGroq(userMessage, history = []) {
-  const messages = [{ role: 'system', content: LAUNCHERDESK_KB }]
+async function callGemini(userMessage, history = []) {
+  // Build conversation history in Gemini format
+  const contents = []
 
+  // Add history (last 8 messages)
   for (const msg of history.slice(-8)) {
-    messages.push({
-      role: msg.role === 'user' ? 'user' : 'assistant',
-      content: msg.content,
+    contents.push({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.content }],
     })
   }
-  messages.push({ role: 'user', content: userMessage })
+
+  // Add current user message
+  contents.push({ role: 'user', parts: [{ text: userMessage }] })
 
   const response = await axios.post(
-    GROQ_URL,
+    `${GEMINI_URL}?key=${GEMINI_API_KEY}`,
     {
-      model: 'llama-3.1-8b-instant',  // free, fast, high quality
-      messages,
-      max_tokens: 500,
-      temperature: 0.4,
+      system_instruction: { parts: [{ text: LAUNCHERDESK_KB }] },
+      contents,
+      generationConfig: {
+        maxOutputTokens: 500,
+        temperature: 0.4,
+      },
     },
     {
-      headers: {
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      timeout: 15000,
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 20000,
     }
   )
 
-  const text = response.data?.choices?.[0]?.message?.content
+  const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text
   return text || FALLBACK_MSG
 }
 
@@ -65,19 +74,19 @@ exports.interact = asyncHandler(async (req, res, next) => {
 
     let replyText = FALLBACK_MSG
 
-    if (GROQ_API_KEY) {
+    if (GEMINI_API_KEY) {
       try {
         const history = session.messages.slice(0, -1).map(m => ({
           role: m.role === 'user' ? 'user' : 'assistant',
           content: m.content,
         }))
-        replyText = await callGroq(userText, history)
-        console.log('[Groq] ✓ Response received')
+        replyText = await callGemini(userText, history)
+        console.log('[Gemini] ✓ Response received')
       } catch (err) {
-        console.error('[Groq] Error:', err.response?.status, JSON.stringify(err.response?.data || err.message))
+        console.error('[Gemini] Error:', err.response?.status, JSON.stringify(err.response?.data || err.message))
       }
     } else {
-      console.warn('[Groq] No GROQ_API_KEY set — using fallback')
+      console.warn('[Gemini] No GEMINI_API_KEY set — using fallback')
     }
 
     session.messages.push({ role: 'bot', content: replyText })
