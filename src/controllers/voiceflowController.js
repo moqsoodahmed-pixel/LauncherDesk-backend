@@ -5,13 +5,16 @@ const { asyncHandler, AppError } = require('../middleware/errorHandler')
 const { LAUNCHERDESK_KB } = require('../data/knowledgeBase')
 
 /**
- * AI backend using Google Gemini 2.0 Flash
- * FREE: 1,500 requests/day, no credit card needed
- * Get key: https://aistudio.google.com/apikey
- * Env var: GEMINI_API_KEY
+ * AI backend: Dual Support with Smart Fallback
+ * Primary: Google Gemini 2.0 Flash (free: 1,500 requests/day, env: GEMINI_API_KEY)
+ * Secondary / Failover: Groq openai/gpt-oss-120b (free, high-speed, env: GROQ_API_KEY)
  */
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'
+
+const GROQ_API_KEY = process.env.GROQ_API_KEY
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+const GROQ_MODEL = 'openai/gpt-oss-120b'
 
 const FALLBACK_MSG = "Hi! I'm the LauncherDesk AI. I can help with company registration, GST, trademark, websites, digital marketing, virtual office and compliance. Please WhatsApp us at +91 85488 54859 for immediate assistance."
 
@@ -20,22 +23,17 @@ function buildTraces(text) {
 }
 
 async function callGemini(userMessage, history = []) {
-  // Build conversation history in Gemini format
   const contents = []
-
-  // Add history (last 8 messages)
   for (const msg of history.slice(-8)) {
     contents.push({
       role: msg.role === 'user' ? 'user' : 'model',
       parts: [{ text: msg.content }],
     })
   }
-
-  // Add current user message
   contents.push({ role: 'user', parts: [{ text: userMessage }] })
 
   const response = await axios.post(
-    `${GEMINI_URL}?key=${GEMINI_API_KEY}`,
+    `${GEMINI_URL}?key=${process.env.GEMINI_API_KEY || GEMINI_API_KEY}`,
     {
       system_instruction: { parts: [{ text: LAUNCHERDESK_KB }] },
       contents,
@@ -51,7 +49,38 @@ async function callGemini(userMessage, history = []) {
   )
 
   const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text
-  return text || FALLBACK_MSG
+  return text || null
+}
+
+async function callGroq(userMessage, history = []) {
+  const messages = [{ role: 'system', content: LAUNCHERDESK_KB }]
+  for (const msg of history.slice(-8)) {
+    messages.push({
+      role: msg.role === 'user' ? 'user' : 'assistant',
+      content: msg.content,
+    })
+  }
+  messages.push({ role: 'user', content: userMessage })
+
+  const response = await axios.post(
+    GROQ_URL,
+    {
+      model: GROQ_MODEL,
+      messages,
+      max_tokens: 500,
+      temperature: 0.4,
+    },
+    {
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY || GROQ_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 20000,
+    }
+  )
+
+  const text = response.data?.choices?.[0]?.message?.content
+  return text || null
 }
 
 exports.interact = asyncHandler(async (req, res, next) => {
@@ -72,21 +101,39 @@ exports.interact = asyncHandler(async (req, res, next) => {
     const userText = String(action.payload)
     session.messages.push({ role: 'user', content: userText })
 
-    let replyText = FALLBACK_MSG
+    let replyText = null
+    const history = session.messages.slice(0, -1).map(m => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.content,
+    }))
 
-    if (GEMINI_API_KEY) {
+    const geminiKey = process.env.GEMINI_API_KEY || GEMINI_API_KEY
+    const groqKey = process.env.GROQ_API_KEY || GROQ_API_KEY
+
+    // Try Gemini first if key is present
+    if (geminiKey) {
       try {
-        const history = session.messages.slice(0, -1).map(m => ({
-          role: m.role === 'user' ? 'user' : 'assistant',
-          content: m.content,
-        }))
         replyText = await callGemini(userText, history)
-        console.log('[Gemini] ✓ Response received')
+        if (replyText) console.log('[Gemini] ✓ Response received')
       } catch (err) {
-        console.error('[Gemini] Error:', err.response?.status, JSON.stringify(err.response?.data || err.message))
+        console.error('[Gemini] Failed:', err.response?.status, err.response?.data?.error?.message || err.message)
       }
-    } else {
-      console.warn('[Gemini] No GEMINI_API_KEY set — using fallback')
+    }
+
+    // Fallback to Groq if Gemini failed or is unconfigured
+    if (!replyText && groqKey) {
+      try {
+        console.log('[AI] Falling back to Groq (openai/gpt-oss-120b)...')
+        replyText = await callGroq(userText, history)
+        if (replyText) console.log('[Groq] ✓ Response received')
+      } catch (err) {
+        console.error('[Groq] Failed:', err.response?.status, err.response?.data?.error?.message || err.message)
+      }
+    }
+
+    if (!replyText) {
+      console.warn('[AI] Neither Gemini nor Groq succeeded — using default fallback message')
+      replyText = FALLBACK_MSG
     }
 
     session.messages.push({ role: 'bot', content: replyText })
