@@ -1,26 +1,26 @@
 require('dotenv').config()
-const express    = require('express')
-const cors       = require('cors')
-const helmet     = require('helmet')
-const rateLimit  = require('express-rate-limit')
-const path       = require('path')
-const connectDB  = require('./config/db')
+const express = require('express')
+const cors = require('cors')
+const helmet = require('helmet')
+const rateLimit = require('express-rate-limit')
+const path = require('path')
+const connectDB = require('./config/db')
 
-const contactRoutes     = require('./routes/contact')
-const serviceRoutes     = require('./routes/services')
-const blogRoutes        = require('./routes/blogs')
-const faqRoutes         = require('./routes/faqs')
-const leadRoutes        = require('./routes/leads')
-const authRoutes        = require('./routes/auth')
-const quoteRoutes       = require('./routes/quotes')
+const contactRoutes = require('./routes/contact')
+const serviceRoutes = require('./routes/services')
+const blogRoutes = require('./routes/blogs')
+const faqRoutes = require('./routes/faqs')
+const leadRoutes = require('./routes/leads')
+const authRoutes = require('./routes/auth')
+const quoteRoutes = require('./routes/quotes')
 const applicationRoutes = require('./routes/applications')
-const marketRoutes      = require('./routes/market')
-const voiceflowRoutes   = require('./routes/voiceflow')
-const adminRoutes       = require('./routes/admin')
-const partnerRoutes     = require('./routes/partners')
-const salesRoutes       = require('./routes/sales')
-const paymentRoutes     = require('./routes/payments')
-const userRoutes        = require('./routes/user')
+const marketRoutes = require('./routes/market')
+const voiceflowRoutes = require('./routes/voiceflow')
+const adminRoutes = require('./routes/admin')
+const partnerRoutes = require('./routes/partners')
+const salesRoutes = require('./routes/sales')
+const paymentRoutes = require('./routes/payments')
+const userRoutes = require('./routes/user')
 
 connectDB()
 
@@ -80,7 +80,7 @@ const authLimiter = rateLimit({
   max: 20,
   message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
 })
-app.use('/api/auth/login',    authLimiter)
+app.use('/api/auth/login', authLimiter)
 app.use('/api/auth/register', authLimiter)
 
 const formLimiter = rateLimit({
@@ -89,8 +89,8 @@ const formLimiter = rateLimit({
   message: { success: false, message: 'Too many submissions. Please try again later.' },
 })
 app.use('/api/contact', formLimiter)
-app.use('/api/quotes',  formLimiter)
-app.use('/api/leads',   formLimiter)
+app.use('/api/quotes', formLimiter)
+app.use('/api/leads', formLimiter)
 
 const aiLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
@@ -107,21 +107,21 @@ const paymentLimiter = rateLimit({
 app.use('/api/payments', paymentLimiter)
 
 /* ── Routes ───────────────────────────────────────────────────────────── */
-app.use('/api/auth',         authRoutes)
-app.use('/api/contact',      contactRoutes)
-app.use('/api/leads',        leadRoutes)
-app.use('/api/quotes',       quoteRoutes)
-app.use('/api/services',     serviceRoutes)
-app.use('/api/blogs',        blogRoutes)
-app.use('/api/faqs',         faqRoutes)
+app.use('/api/auth', authRoutes)
+app.use('/api/contact', contactRoutes)
+app.use('/api/leads', leadRoutes)
+app.use('/api/quotes', quoteRoutes)
+app.use('/api/services', serviceRoutes)
+app.use('/api/blogs', blogRoutes)
+app.use('/api/faqs', faqRoutes)
 app.use('/api/applications', applicationRoutes)
-app.use('/api/market',       marketRoutes)
-app.use('/api/voiceflow',    voiceflowRoutes)
-app.use('/api/admin',        adminRoutes)
-app.use('/api/partners',     partnerRoutes)
-app.use('/api/sales',        salesRoutes)
-app.use('/api/payments',     paymentRoutes)
-app.use('/api/user',         userRoutes)
+app.use('/api/market', marketRoutes)
+app.use('/api/voiceflow', voiceflowRoutes)
+app.use('/api/admin', adminRoutes)
+app.use('/api/partners', partnerRoutes)
+app.use('/api/sales', salesRoutes)
+app.use('/api/payments', paymentRoutes)
+app.use('/api/user', userRoutes)
 
 app.get('/api/health', (_req, res) => {
   res.json({ success: true, status: 'LauncherDesk API is running', timestamp: new Date() })
@@ -144,7 +144,7 @@ app.use((err, req, res, _next) => {
 const PORT = process.env.PORT || 5000
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀  LauncherDesk API running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`)
-  if (!process.env.RAZORPAY_KEY_ID)  console.warn('⚠️   RAZORPAY_KEY_ID not set — payments will return 503')
-  if (!process.env.BREVO_API_KEY)    console.warn('⚠️   BREVO_API_KEY not set — emails will fail')
-  if (!process.env.GROQ_API_KEY)     console.warn('⚠️   GROQ_API_KEY not set — AI will use fallback')
+  if (!process.env.RAZORPAY_KEY_ID) console.warn('⚠️   RAZORPAY_KEY_ID not set — payments will return 503')
+  if (!process.env.BREVO_API_KEY) console.warn('⚠️   BREVO_API_KEY not set — emails will fail')
+  if (!process.env.OPENAI_API_KEY) console.warn('⚠️   OPENAI_API_KEY not set — AI will use fallback')
 })
