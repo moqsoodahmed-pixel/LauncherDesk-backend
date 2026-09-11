@@ -146,5 +146,5 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀  LauncherDesk API running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`)
   if (!process.env.RAZORPAY_KEY_ID) console.warn('⚠️   RAZORPAY_KEY_ID not set — payments will return 503')
   if (!process.env.BREVO_API_KEY) console.warn('⚠️   BREVO_API_KEY not set — emails will fail')
-  if (!process.env.GEMINI_API_KEY && !process.env.GROQ_API_KEY) console.warn('⚠️   Neither GEMINI_API_KEY nor GROQ_API_KEY set — AI will use fallback message')
+  if (!process.env.GROQ_API_KEY) console.warn('⚠️   GROQ_API_KEY not set — AI will use fallback message')
 })
