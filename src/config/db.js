@@ -1,8 +1,13 @@
 const mongoose = require('mongoose')
 
 const connectDB = async () => {
+  const uri = process.env.MONGO_URI || 'mongodb://localhost:27017/launcherdesk'
+  if (!process.env.MONGO_URI) {
+    console.warn('⚠️   MONGO_URI not specified in .env, falling back to mongodb://localhost:27017/launcherdesk')
+  }
+
   try {
-    const conn = await mongoose.connect(process.env.MONGO_URI, {
+    const conn = await mongoose.connect(uri, {
       serverSelectionTimeoutMS: 5000,
     })
     console.log(`✅  MongoDB connected: ${conn.connection.host}`)
