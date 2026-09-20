@@ -7,9 +7,23 @@ const Partner     = require('../models/Partner')
 const PartnerLead = require('../models/PartnerLead')
 const { protect, restrictTo } = require('../middleware/auth')
 const { asyncHandler } = require('../middleware/errorHandler')
+const {
+  getTraffic,
+  getSocialStats,
+  addSocialStat,
+  deleteSocialStat,
+} = require('../controllers/analyticsController')
 
 // All admin routes require auth + admin role
 router.use(protect, restrictTo('admin'))
+
+/**
+ * Website traffic (Cloudflare) + social media growth (LinkedIn/Facebook/Instagram)
+ */
+router.get('/analytics/traffic', asyncHandler(getTraffic))
+router.get('/analytics/social', asyncHandler(getSocialStats))
+router.post('/analytics/social', asyncHandler(addSocialStat))
+router.delete('/analytics/social/:id', asyncHandler(deleteSocialStat))
 
 /**
  * GET /api/admin/stats
