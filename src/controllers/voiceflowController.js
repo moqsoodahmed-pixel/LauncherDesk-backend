@@ -1,6 +1,9 @@
 const axios = require('axios')
+const mongoose = require('mongoose')
 const ChatSession = require('../models/ChatSession')
 const Lead = require('../models/Lead')
+const User = require('../models/User')
+const Payment = require('../models/Payment')
 const { asyncHandler, AppError } = require('../middleware/errorHandler')
 const { LAUNCHERDESK_KB } = require('../data/knowledgeBase')
 
@@ -84,6 +87,15 @@ exports.interact = asyncHandler(async (req, res, next) => {
   let session = await ChatSession.findOne({ voiceflowUserId: userId })
   if (!session) session = new ChatSession({ voiceflowUserId: userId })
 
+  // Link this chat to the logged-in customer (used by the admin Chat History page)
+  const chatUser = req.user || null   // set by protect() on POST /interact
+  if (chatUser) {
+    if (!session.user) session.user = chatUser._id
+    if (!session.leadName)   session.leadName   = chatUser.name
+    if (!session.leadEmail)  session.leadEmail  = chatUser.email
+    if (!session.leadMobile && chatUser.phone) session.leadMobile = chatUser.phone
+  }
+
   if (action.type === 'launch') {
     const greeting = "Hi! I'm Sneha, your LauncherDesk business assistant. How can I help you today?"
     session.messages.push({ role: 'bot', content: greeting })
@@ -133,21 +145,98 @@ exports.deleteSession = asyncHandler(async (req, res, next) => {
   res.json({ success: true, message: 'Session cleared' })
 })
 
+const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * GET /api/voiceflow/sessions   (admin only)
+ * Query: page, limit, q, converted=true|false, linked=true|false
+ * `q` searches: chat id, name/email/mobile, message text, customer name/email/phone,
+ *               and Razorpay payment / order ids (pay_xxx / order_xxx).
+ */
 exports.getSessions = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20, converted } = req.query
+  const page  = Math.max(parseInt(req.query.page, 10) || 1, 1)
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50)
+  const { converted, linked, q } = req.query
+
   const filter = {}
-  if (converted === 'true') filter.convertedToLead = true
+  if (converted === 'true')  filter.convertedToLead = true
   if (converted === 'false') filter.convertedToLead = false
-  const skip = (Number(page) - 1) * Number(limit)
-  const [sessions, total] = await Promise.all([
-    ChatSession.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(Number(limit)),
+  if (linked === 'true')     filter.user = { $ne: null }
+  if (linked === 'false')    filter.user = null
+
+  const term = (q || '').trim()
+  if (term) {
+    const rx = new RegExp(escapeRegex(term), 'i')
+    const or = [
+      { voiceflowUserId: rx },
+      { leadName: rx }, { leadEmail: rx }, { leadMobile: rx },
+      { 'messages.content': rx },
+    ]
+    if (mongoose.isValidObjectId(term)) or.push({ user: term }, { _id: term })
+
+    // customers matching the term, and customers who own a matching payment
+    const [users, payments] = await Promise.all([
+      User.find({ $or: [{ name: rx }, { email: rx }, { phone: rx }] }).select('_id').limit(50).lean(),
+      Payment.find({ $or: [{ razorpayPaymentId: rx }, { razorpayOrderId: rx }] }).select('user').limit(50).lean(),
+    ])
+    const ids = [...users.map(u => u._id), ...payments.map(p => p.user)]
+    if (ids.length) or.push({ user: { $in: ids } })
+    filter.$or = or
+  }
+
+  const [rows, total] = await Promise.all([
+    ChatSession.aggregate([
+      { $match: filter },
+      { $sort: { updatedAt: -1 } },
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+      { $project: {
+          voiceflowUserId: 1, user: 1, leadName: 1, leadEmail: 1, leadMobile: 1,
+          convertedToLead: 1, createdAt: 1, updatedAt: 1,
+          messageCount: { $size: { $ifNull: ['$messages', []] } },
+          lastMessage: { $arrayElemAt: ['$messages', -1] },
+      } },
+    ]),
     ChatSession.countDocuments(filter),
   ])
-  res.json({ success: true, total, page: Number(page), data: sessions })
+
+  await User.populate(rows, { path: 'user', select: 'name email phone' })
+  res.json({ success: true, total, page, data: rows })
 })
 
+/**
+ * GET /api/voiceflow/sessions/:id   (admin only)
+ * `:id` can be the chat document _id, the voiceflowUserId, or a customer's user _id.
+ * Returns the full transcript plus the customer's payments (if the chat is linked to a user).
+ */
 exports.getSession = asyncHandler(async (req, res, next) => {
-  const session = await ChatSession.findOne({ voiceflowUserId: req.params.userId })
+  const { userId: key } = req.params
+  const lookups = [{ voiceflowUserId: key }]
+  if (mongoose.isValidObjectId(key)) lookups.push({ _id: key }, { user: key })
+
+  const session = await ChatSession.findOne({ $or: lookups })
+    .sort({ updatedAt: -1 })
+    .populate('user', 'name email phone createdAt')
   if (!session) return next(new AppError('Session not found', 404))
-  res.json({ success: true, data: session })
+
+  let payments = []
+  if (session.user) {
+    payments = await Payment.find({ user: session.user._id })
+      .sort({ createdAt: -1 })
+      .select('razorpayOrderId razorpayPaymentId serviceTitle amountRupees currency status verifiedAt createdAt')
+      .lean()
+  }
+  res.json({ success: true, data: session, payments })
+})
+
+/**
+ * DELETE /api/voiceflow/sessions/:id   (admin only)
+ */
+exports.adminDeleteSession = asyncHandler(async (req, res, next) => {
+  const { userId: key } = req.params
+  const lookups = [{ voiceflowUserId: key }]
+  if (mongoose.isValidObjectId(key)) lookups.push({ _id: key })
+  const r = await ChatSession.deleteOne({ $or: lookups })
+  if (!r.deletedCount) return next(new AppError('Session not found', 404))
+  res.json({ success: true, message: 'Chat deleted' })
 })

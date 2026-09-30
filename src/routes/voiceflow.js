@@ -4,6 +4,7 @@ const {
   deleteSession,
   getSessions,
   getSession,
+  adminDeleteSession,
 } = require('../controllers/voiceflowController')
 const { protect, restrictTo } = require('../middleware/auth')
 
@@ -26,5 +27,6 @@ router.delete('/session/:userId',    protect, ownSessionOnly, deleteSession)
 // Admin — session analytics / lead review
 router.get('/sessions',              protect, restrictTo('admin'), getSessions)
 router.get('/sessions/:userId',      protect, restrictTo('admin'), getSession)
+router.delete('/sessions/:userId',   protect, restrictTo('admin'), adminDeleteSession)
 
 module.exports = router
