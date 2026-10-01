@@ -12,10 +12,21 @@ const paymentSchema = new mongoose.Schema(
     currency:          { type: String, default: 'INR' },
     status: {
       type: String,
-      enum: ['created', 'paid', 'failed', 'refunded'],
+      enum: ['created', 'paid', 'failed', 'refunded', 'partially_refunded'],
       default: 'created',
       index: true,
     },
+    order:         { type: mongoose.Schema.Types.ObjectId, ref: 'ServiceOrder', index: true },
+    method:        { type: String },
+    refundedPaise: { type: Number, default: 0 },
+    refunds: [{
+      refundId:    String,
+      amountPaise: Number,
+      status:      String,    // Razorpay refund status: pending | processed | failed
+      createdAt:   Date,
+      processedAt: Date,
+      _id: false,
+    }],
     verifiedAt:    { type: Date },
     failureReason: { type: String },
     processedAt:   { type: Date },

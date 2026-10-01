@@ -15,7 +15,7 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
       .select('serviceTitle serviceSlug status steps createdAt expectedBy assignedProfessional').lean(),
   ])
   const activeOrders = await ServiceOrder.countDocuments({
-    user: userId, status: { $in: ['received', 'in-progress', 'pending-docs', 'processing'] },
+    user: userId, status: { $nin: ['COMPLETED', 'DOCUMENTS_READY', 'CANCELLED', 'REFUNDED', 'CLOSED', 'completed', 'cancelled', 'CREATED', 'PAYMENT_PENDING', 'PAYMENT_FAILED'] },
   })
   res.json({
     success: true,

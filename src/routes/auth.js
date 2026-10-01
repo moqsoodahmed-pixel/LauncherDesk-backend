@@ -67,6 +67,8 @@ router.post('/google-token', asyncHandler(async (req, res, next) => {
             role: 'user',
             isActive: true,
             authProvider: 'google',
+            emailVerified: true,
+            emailVerifiedAt: new Date(),
         })
     } else if (!user.googleId) {
         // Existing email user — link Google account
@@ -131,6 +133,8 @@ router.post('/microsoft-token', asyncHandler(async (req, res, next) => {
             role: 'user',
             isActive: true,
             authProvider: 'microsoft',
+            emailVerified: true,
+            emailVerifiedAt: new Date(),
         })
     } else if (!user.microsoftId) {
         user.microsoftId = microsoftId
@@ -158,6 +162,23 @@ router.post('/microsoft-token', asyncHandler(async (req, res, next) => {
 }))
 
 router.post('/register', registerValidators, validate, register)
+
+// ── Email OTP verification ────────────────────────────────────────────
+// POST /api/auth/otp/send    (logged in) — send / resend the verification code
+// POST /api/auth/otp/verify  (logged in) — body { otp }
+const otpService = require('../services/otpService')
+router.post('/otp/send', protect, asyncHandler(async (req, res, next) => {
+    try {
+        const r = await otpService.sendOtp(req.user)
+        res.json({ success: true, message: 'Verification code sent to your email.', ...r })
+    } catch (e) { next(new AppError(e.message, e.statusCode || 400)) }
+}))
+router.post('/otp/verify', protect, asyncHandler(async (req, res, next) => {
+    try {
+        const r = await otpService.verifyOtp(req.user, req.body.otp)
+        res.json({ success: true, message: r.alreadyVerified ? 'Email already verified.' : 'Email verified successfully.', emailVerified: true })
+    } catch (e) { next(new AppError(e.message, e.statusCode || 400)) }
+}))
 router.post('/login', loginValidators, validate, login)
 router.get('/me', protect, getMe)
 const crypto = require('crypto')

@@ -22,7 +22,10 @@ const salesRoutes = require('./routes/sales')
 const paymentRoutes = require('./routes/payments')
 const userRoutes = require('./routes/user')
 
-connectDB()
+connectDB().then(() => {
+  // Notification engine background jobs (email queue / retries, document reminders, feedback)
+  require('./services/scheduler').start()
+})
 
 const app = express()
 app.set('trust proxy', 1)
@@ -60,6 +63,10 @@ app.use(helmet({
 app.use(helmet.noSniff())
 app.use(helmet.referrerPolicy({ policy: 'strict-origin-when-cross-origin' }))
 
+/* ── Razorpay webhook — needs the RAW body for signature verification, so it is
+   mounted before express.json(). Not rate-limited (Razorpay retries on failure). */
+app.post('/api/payments/webhook', express.raw({ type: '*/*', limit: '1mb' }), require('./controllers/paymentController').webhook)
+
 /* ── Body parsing ─────────────────────────────────────────────────────── */
 app.use(express.json({ limit: '2mb' }))
 app.use(express.urlencoded({ extended: true, limit: '2mb' }))
@@ -82,6 +89,7 @@ const authLimiter = rateLimit({
 })
 app.use('/api/auth/login', authLimiter)
 app.use('/api/auth/register', authLimiter)
+app.use('/api/auth/otp', authLimiter)
 
 const formLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -121,7 +129,9 @@ app.use('/api/admin', adminRoutes)
 app.use('/api/partners', partnerRoutes)
 app.use('/api/sales', salesRoutes)
 app.use('/api/payments', paymentRoutes)
+app.use('/api/user', require('./routes/customerOps'))   // documents, invoices, timeline, tickets
 app.use('/api/user', userRoutes)
+app.use('/api/admin/ops', require('./routes/adminOps'))  // order ops, communication history, templates, settings
 
 app.get('/api/health', (_req, res) => {
   res.json({ success: true, status: 'LauncherDesk API is running', timestamp: new Date() })
@@ -145,6 +155,7 @@ const PORT = process.env.PORT || 5000
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀  LauncherDesk API running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`)
   if (!process.env.RAZORPAY_KEY_ID) console.warn('⚠️   RAZORPAY_KEY_ID not set — payments will return 503')
-  if (!process.env.BREVO_API_KEY) console.warn('⚠️   BREVO_API_KEY not set — emails will fail')
+  if (!process.env.BREVO_API_KEY && !process.env.EMAIL_PROVIDER) console.warn('⚠️   No email provider configured — emails are printed to the console (EMAIL_PROVIDER=console)')
+  if (!process.env.RAZORPAY_WEBHOOK_SECRET) console.warn('⚠️   RAZORPAY_WEBHOOK_SECRET not set — Razorpay webhooks will be rejected')
   if (!process.env.GROQ_API_KEY) console.warn('⚠️   GROQ_API_KEY not set — AI will use fallback message')
 })

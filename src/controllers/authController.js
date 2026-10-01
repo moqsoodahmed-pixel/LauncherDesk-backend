@@ -15,6 +15,7 @@ const sendTokenResponse = (user, statusCode, res) => {
       name:  user.name,
       email: user.email,
       role:  user.role,
+      emailVerified: !!user.emailVerified,
     },
   })
 }
@@ -27,7 +28,10 @@ exports.register = asyncHandler(async (req, res, next) => {
   const existing = await User.findOne({ email })
   if (existing) return next(new AppError('Email already registered', 409))
 
-  const user = await User.create({ name, email, password, phone })
+  const user = await User.create({ name, email, password, phone, emailVerified: false })
+  // Send the verification code (AUTH_EMAIL_OTP). Registration still succeeds if the email fails;
+  // the customer can request a new code from POST /api/auth/otp/send.
+  require('../services/otpService').sendOtp(user).catch(err => console.error('[OTP] send on register failed:', err.message))
   sendTokenResponse(user, 201, res)
 })
 

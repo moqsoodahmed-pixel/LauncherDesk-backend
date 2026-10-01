@@ -17,10 +17,14 @@ const serviceDocumentSchema = new mongoose.Schema(
     fileSize:     { type: Number },
     status: {
       type: String,
-      enum: ['pending', 'uploaded', 'under-review', 'accepted', 'rejected'],
-      default: 'pending',
+      enum: [
+        'NOT_REQUIRED', 'PENDING', 'UPLOADED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'RESUBMISSION_REQUIRED',
+        'pending', 'uploaded', 'under-review', 'accepted', 'rejected',   // legacy values
+      ],
+      default: 'PENDING',
     },
     rejectionReason: { type: String },
+    correctionRequired: { type: String },   // what the customer needs to fix
     reviewedAt:      { type: Date },
     reviewedBy:      { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },

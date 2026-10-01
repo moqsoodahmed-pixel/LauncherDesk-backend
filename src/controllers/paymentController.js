@@ -58,12 +58,20 @@ exports.createOrder = asyncHandler(async (req, res, next) => {
     status:          'created',
   })
 
-  console.log(`[Payment] Order created: ${order.id} — ₹${amountNum} — ${req.user.email} — ${serviceSlug}`)
+  // LauncherDesk order (LD-YYYY-NNNNNN) linked to this checkout
+  const ldOrder = await require('../services/orderService').createOrder({
+    userId: req.user._id, serviceSlug, serviceTitle, amount: amountNum, paymentId: payment._id,
+  })
+  await Payment.updateOne({ _id: payment._id }, { order: ldOrder._id })
+
+  console.log(`[Payment] Order created: ${order.id} — ${ldOrder.orderNumber} — ₹${amountNum} — ${req.user.email} — ${serviceSlug}`)
 
   res.json({
     success:     true,
     orderId:     order.id,
     paymentDbId: payment._id.toString(),
+    ldOrderId:   ldOrder._id.toString(),
+    orderNumber: ldOrder.orderNumber,
     amount:      order.amount,
     currency:    order.currency,
     keyId:       process.env.RAZORPAY_KEY_ID,
@@ -81,46 +89,106 @@ exports.verifyPayment = asyncHandler(async (req, res, next) => {
   if (!payment) return next(new AppError('Payment record not found', 404))
   if (payment.user.toString() !== req.user._id.toString()) return next(new AppError('Not authorised', 403))
 
-  if (payment.processedAt) {
-    console.warn(`[Payment] Duplicate verify: ${razorpay_order_id} by ${req.user.email}`)
-    return res.json({ success: true, paymentId: payment.razorpayPaymentId, message: 'Payment already confirmed.' })
-  }
-
   const body     = `${razorpay_order_id}|${razorpay_payment_id}`
   const expected = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(body).digest('hex')
-
-  if (expected !== razorpay_signature) {
-    await Payment.findByIdAndUpdate(payment._id, { status: 'failed', failureReason: 'Signature mismatch', processedAt: new Date() })
+  const sigOk = expected.length === String(razorpay_signature).length &&
+    crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(String(razorpay_signature)))
+  if (!sigOk) {
+    // Don't mark the payment failed here — a tampered browser request must not override
+    // the real state. The Razorpay webhook remains the source of truth.
+    console.warn(`[Payment] Signature mismatch on verify: ${razorpay_order_id} by ${req.user.email}`)
     return next(new AppError('Payment verification failed — please contact support', 400))
   }
 
-  await Payment.findByIdAndUpdate(payment._id, {
-    razorpayPaymentId: razorpay_payment_id,
-    status:     'paid',
-    verifiedAt: new Date(),
-    processedAt: new Date(),
+  // Shared, idempotent success path (also used by the Razorpay webhook).
+  const { order, alreadyProcessed } = await require('../services/paymentService').markPaid({
+    razorpayOrderId: razorpay_order_id, razorpayPaymentId: razorpay_payment_id, source: 'customer',
   })
+  console.log(`[Payment] Verified${alreadyProcessed ? ' (already processed)' : ''}: ${razorpay_payment_id} — ${req.user.email}`)
+  res.json({
+    success: true, paymentId: razorpay_payment_id, orderNumber: order?.orderNumber, ldOrderId: order?._id,
+    message: alreadyProcessed ? 'Payment already confirmed.' : 'Payment verified successfully. Our team will be in touch shortly!',
+  })
+})
 
-  console.log(`[Payment] Verified: ${razorpay_payment_id} — ${req.user.email} — ₹${payment.amountRupees}`)
+/**
+ * POST /api/payments/webhook — Razorpay webhooks (server-to-server, source of truth).
+ * Mounted with express.raw() in server.js so the signature is checked against the exact body.
+ * Configure in Razorpay Dashboard → Settings → Webhooks with secret RAZORPAY_WEBHOOK_SECRET and events:
+ *   payment.captured, payment.failed, order.paid, refund.created, refund.processed, refund.failed
+ */
+exports.webhook = async (req, res) => {
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET
+  const signature = req.headers['x-razorpay-signature']
+  const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body || {}))
+  if (!secret || !signature) return res.status(400).json({ success: false, message: 'Webhook not configured' })
 
-  const { sendEmail } = require('../config/email')
-  const amtDisplay    = `₹${payment.amountRupees.toLocaleString('en-IN')}`
-  const svcLabel      = serviceTitle || serviceSlug || 'Service'
+  const expected = crypto.createHmac('sha256', secret).update(raw).digest('hex')
+  if (expected.length !== signature.length || !crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature))) {
+    console.warn('[Webhook] Invalid Razorpay signature')
+    return res.status(400).json({ success: false, message: 'Invalid signature' })
+  }
 
-  Promise.all([
-    sendEmail({
-      to: process.env.SUPPORT_EMAIL || 'contact@launcherdesk.com',
-      fromName: 'LauncherDesk Payments', fromEmail: process.env.EMAIL_FROM_ADDR,
-      subject: `Payment Received: ${svcLabel} — ${amtDisplay}`,
-      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto"><h2 style="color:#0a2540">Payment Received ✅</h2><table style="width:100%;border-collapse:collapse;font-size:14px"><tr><td style="padding:8px 0;font-weight:600;width:160px">Service</td><td>${svcLabel}</td></tr><tr><td style="padding:8px 0;font-weight:600">Amount</td><td>${amtDisplay}</td></tr><tr><td style="padding:8px 0;font-weight:600">Customer</td><td>${req.user.name} (${req.user.email})</td></tr><tr><td style="padding:8px 0;font-weight:600">Payment ID</td><td>${razorpay_payment_id}</td></tr><tr><td style="padding:8px 0;font-weight:600">Order ID</td><td>${razorpay_order_id}</td></tr></table></div>`,
-    }),
-    sendEmail({
-      to: req.user.email,
-      fromName: 'LauncherDesk', fromEmail: process.env.EMAIL_FROM_ADDR,
-      subject: `Payment confirmed — ${svcLabel}`,
-      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#1a2b3c"><div style="background:linear-gradient(135deg,#1A2F4E,#1D6FE0);padding:28px;border-radius:12px 12px 0 0;text-align:center"><h1 style="color:#fff;font-size:20px;margin:0">Payment Confirmed ✅</h1></div><div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px"><p>Hi <strong>${req.user.name}</strong>,</p><p>We have received your payment of <strong>${amtDisplay}</strong> for <strong>${svcLabel}</strong>.</p><p>Our team will begin processing your service within <strong>1 business day</strong>.</p><p style="font-size:13px;color:#64748B">Payment ID: ${razorpay_payment_id}</p><hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0"/><p style="font-size:12px;color:#94A3B8;text-align:center">LauncherDesk | <a href="https://launcherdesk.com">launcherdesk.com</a></p></div></div>`,
-    }),
-  ]).catch(err => console.error('[Payment email error]', err.message))
+  let body
+  try { body = JSON.parse(raw.toString('utf8')) } catch { return res.status(400).json({ success: false }) }
+  const eventId = req.headers['x-razorpay-event-id'] || `${body.event}:${body.payload?.payment?.entity?.id || body.payload?.refund?.entity?.id || ''}:${body.created_at}`
 
-  res.json({ success: true, paymentId: razorpay_payment_id, message: 'Payment verified successfully. Our team will be in touch shortly!' })
+  // Duplicate delivery protection
+  const WebhookEvent = require('../models/WebhookEvent')
+  try { await WebhookEvent.create({ eventId, event: body.event, payload: body.payload }) }
+  catch (e) { if (e.code === 11000) return res.json({ success: true, duplicate: true }); throw e }
+
+  const svc = require('../services/paymentService')
+  try {
+    const pay = body.payload?.payment?.entity
+    const ref = body.payload?.refund?.entity
+    switch (body.event) {
+      case 'payment.captured':
+      case 'order.paid':
+        if (pay?.order_id) await svc.markPaid({ razorpayOrderId: pay.order_id, razorpayPaymentId: pay.id, method: pay.method, source: 'razorpay' })
+        break
+      case 'payment.failed':
+        if (pay?.order_id) await svc.markFailed({ razorpayOrderId: pay.order_id, razorpayPaymentId: pay.id, reason: pay.error_description || pay.error_reason || 'Payment failed', source: 'razorpay' })
+        break
+      case 'refund.created':
+      case 'refund.processed':
+      case 'refund.failed':
+        if (ref?.payment_id) await svc.recordRefund({
+          razorpayPaymentId: ref.payment_id, refundId: ref.id, amountPaise: ref.amount,
+          status: body.event === 'refund.processed' ? 'processed' : body.event === 'refund.failed' ? 'failed' : 'pending',
+        })
+        break
+      default:
+        break
+    }
+    res.json({ success: true })
+  } catch (err) {
+    // Let Razorpay retry: remove the idempotency record so the retry is processed.
+    await WebhookEvent.deleteOne({ eventId }).catch(() => {})
+    console.error('[Webhook] Processing error:', err.message)
+    res.status(500).json({ success: false })
+  }
+}
+
+/**
+ * Admin: start a refund through Razorpay. Customer emails are sent from the
+ * refund webhooks (actual Razorpay status), not from this request.
+ * Body: { amount (rupees, optional = full), reason }
+ */
+exports.adminRefund = asyncHandler(async (req, res, next) => {
+  const ServiceOrder = require('../models/ServiceOrder')
+  const order = await ServiceOrder.findById(req.params.id)
+  if (!order?.payment) return next(new AppError('Order has no payment', 400))
+  const payment = await Payment.findById(order.payment)
+  if (!payment?.razorpayPaymentId || !['paid', 'partially_refunded'].includes(payment.status)) return next(new AppError('Payment is not refundable', 400))
+  const remaining = payment.amountPaise - (payment.refundedPaise || 0)
+  const amountPaise = req.body.amount ? Math.round(Number(req.body.amount) * 100) : remaining
+  if (!(amountPaise > 0 && amountPaise <= remaining)) return next(new AppError('Invalid refund amount', 400))
+
+  const refund = await getRazorpay().payments.refund(payment.razorpayPaymentId, { amount: amountPaise, notes: { reason: req.body.reason || '', orderNumber: order.orderNumber } })
+  await require('../services/paymentService').recordRefund({
+    razorpayPaymentId: payment.razorpayPaymentId, refundId: refund.id, amountPaise: refund.amount,
+    status: refund.status === 'processed' ? 'processed' : 'pending', source: req.user.email,
+  })
+  res.json({ success: true, refundId: refund.id, status: refund.status })
 })

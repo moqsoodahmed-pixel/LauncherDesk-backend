@@ -31,3 +31,43 @@ VOICEFLOW_API_KEY=VF.DM.xxxxxxxxxxxxxxxxxxxxxxxx
 
 # Which published version to target: 'production' or 'development'
 VOICEFLOW_VERSION_ALIAS=production
+
+# ── Notification engine (Phase 1) ─────────────────────────────────────
+# Email provider: brevo | sendgrid | resend | mailgun | console (console = print only, for testing)
+EMAIL_PROVIDER=brevo
+EMAIL_FROM_NAME=LauncherDesk
+EMAIL_FROM_ADDR=noreply@launcherdesk.com
+EMAIL_REPLY_TO=contact@launcherdesk.com
+EMAIL_LOGO_URL=https://launcherdesk.com/launcherdesk-logo-transparent.png
+SUPPORT_EMAIL=contact@launcherdesk.com
+# Only the provider you use needs a key
+BREVO_API_KEY=
+SENDGRID_API_KEY=
+RESEND_API_KEY=
+MAILGUN_API_KEY=
+MAILGUN_DOMAIN=
+MAILGUN_REGION=us
+
+# Razorpay webhook (Dashboard → Settings → Webhooks → URL: https://<api-domain>/api/payments/webhook)
+# Events: payment.captured, payment.failed, order.paid, refund.created, refund.processed, refund.failed
+RAZORPAY_WEBHOOK_SECRET=
+
+# OTP hashing secret (falls back to JWT_SECRET)
+OTP_SECRET=
+
+# Invoices
+COMPANY_LEGAL_NAME=LauncherDesk Solutions Private Limited
+COMPANY_ADDRESS=472/7, 20th L Cross Rd, Koramangala, Bengaluru 560095
+COMPANY_GSTIN=
+# inclusive = the amount charged already includes GST (current checkout behaviour)
+INVOICE_GST_MODE=inclusive
+INVOICE_GST_RATE=18
+
+# Admins allowed to edit system-critical email templates (comma separated)
+SUPER_ADMIN_EMAILS=
+
+# Customer documents are stored here (NOT public). Use a persistent volume in production.
+PRIVATE_UPLOAD_DIR=
+MAX_DOCUMENT_MB=10
+# Set to true on extra server instances if only one should run background jobs
+DISABLE_SCHEDULER=false

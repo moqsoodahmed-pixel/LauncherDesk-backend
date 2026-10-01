@@ -9,6 +9,8 @@ const userSchema = new mongoose.Schema(
     phone: { type: String, trim: true },
     role: { type: String, enum: ['user', 'admin', 'partner', 'sales'], default: 'user' },
     isActive: { type: Boolean, default: true },
+    emailVerified:   { type: Boolean, default: false },
+    emailVerifiedAt: { type: Date },
 
     // ── OAuth providers ───────────────────────────────────────────────────────
     googleId: { type: String, sparse: true },

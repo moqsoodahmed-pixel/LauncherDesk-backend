@@ -1,6 +1,8 @@
 node_modules/
 .env
-uploads/
+.env.*
+!.env.example
+logs/
 *.log
-
-test/
+.DS_Store
+private_uploads/
