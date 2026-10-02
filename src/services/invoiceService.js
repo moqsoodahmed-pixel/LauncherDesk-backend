@@ -30,19 +30,36 @@ function splitGst(amountPaid) {
   return { taxable, gst: round2(amountPaid - taxable), total: round2(amountPaid) }
 }
 
+/**
+ * Orders created at checkout save the exact split (professional fee, GST, government
+ * fee). Use it so GST is only ever calculated on the professional fee — never on a
+ * pass-through government fee. Older payments fall back to splitGst().
+ */
+function splitForInvoice(payment) {
+  const bd = payment.breakdown
+  if (bd && bd.feePaise > 0 && bd.gstPaise >= 0) {
+    const taxable = round2(bd.feePaise / 100)
+    const gst = round2(bd.gstPaise / 100)
+    const govt = bd.govtCollected ? round2((bd.govtPaise || 0) / 100) : 0
+    const total = round2(payment.amountRupees)
+    if (Math.abs(taxable + gst + govt - total) < 0.011) return { taxable, gst, govt, total }
+  }
+  return { ...splitGst(payment.amountRupees), govt: 0 }
+}
+
 async function createInvoice(order, payment) {
   const existing = await Invoice.findOne({ payment: payment._id })
   if (existing) return { invoice: existing, created: false }
   const fy = financialYear()
   const seq = await Counter.next(`invoice-${fy}`)
   const customer = await User.findById(order.user).lean()
-  const { taxable, gst, total } = splitGst(payment.amountRupees)
+  const { taxable, gst, total, govt } = splitForInvoice(payment)
   try {
     const invoice = await Invoice.create({
       invoiceNumber: `LD/${fy}/${String(seq).padStart(6, '0')}`,
       order: order._id, payment: payment._id, customer: order.user,
       customerName: customer?.name, customerEmail: customer?.email, customerPhone: customer?.phone,
-      serviceName: order.serviceTitle, taxableAmount: taxable, gstRate: GST_RATE, gstAmount: gst, totalAmount: total,
+      serviceName: order.serviceTitle, taxableAmount: taxable, gstRate: GST_RATE, gstAmount: gst, govtFeeAmount: govt, totalAmount: total,
       paymentReference: payment.razorpayPaymentId,
     })
     return { invoice, created: true }
@@ -84,6 +101,7 @@ function invoicePdf(inv) {
     const row = (label, val, bold) => { y += 18; doc.fontSize(bold ? 11 : 10).fillColor(bold ? '#0A2540' : '#334155').text(label, 300, y, { width: 130, align: 'right' }).text(val, 430, y, { width: 105, align: 'right' }) }
     row('Taxable amount', money(inv.taxableAmount))
     row(`GST @ ${inv.gstRate}%`, money(inv.gstAmount))
+    if (inv.govtFeeAmount > 0) row('Govt. fee (at actual)', money(inv.govtFeeAmount))
     row('Total', money(inv.totalAmount), true)
     doc.fontSize(9).fillColor('#64748B').text(`Payment reference: ${inv.paymentReference || '—'}`, 50, y + 40)
       .text('This is a computer-generated invoice and does not require a signature.', 50, y + 56)
@@ -91,4 +109,4 @@ function invoicePdf(inv) {
   })
 }
 
-module.exports = { createInvoice, invoicePdf, splitGst }
+module.exports = { createInvoice, invoicePdf, splitGst, splitForInvoice }

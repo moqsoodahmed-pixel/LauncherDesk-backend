@@ -13,6 +13,7 @@ const invoiceSchema = new mongoose.Schema(
     taxableAmount: Number,
     gstRate:       { type: Number, default: 18 },
     gstAmount:     Number,
+    govtFeeAmount: { type: Number, default: 0 },   // pass-through government fee, no GST on it
     totalAmount:   Number,
     paymentReference: String,
     invoiceDate:   { type: Date, default: Date.now },

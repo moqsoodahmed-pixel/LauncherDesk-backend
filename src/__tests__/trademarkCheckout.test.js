@@ -1,5 +1,5 @@
-// Trademark checkout: pay-now = professional fee + 18% GST; government fee is
-// per class, stored for the team, and NOT charged online. Price comes from the server.
+// Trademark checkout: charged = professional fee + 18% GST (on the fee only) + government
+// fee (per class, by applicant type). Price comes from the server, never from the browser.
 process.env.RAZORPAY_KEY_ID = 'rzp_test_x'
 process.env.RAZORPAY_KEY_SECRET = 'secret123'
 const express = require('express')
@@ -28,30 +28,47 @@ app.use('/api/payments', require('../routes/payments'))
 app.use((err, _req, res, _next) => res.status(err.statusCode || 500).json({ success: false, message: err.message }))
 
 const URL = '/api/payments/checkout/trademark/create-order'
-const good = { name: 'Asha Rao', email: 'asha@gmail.com', mobile: '9876543210', state: 'Karnataka', applicantType: 'small', classes: 1, brandName: 'Acme Foods' }
+const good = { name: 'Asha Rao', email: 'asha@gmail.com', mobile: '9876543210', city: 'Bengaluru', applicantType: 'small', classes: 1, brandName: 'Acme Foods' }
 
-test('charges professional fee + 18% GST only; government fee is stored, not charged', async () => {
+test('charges professional fee + GST (fee only) + government fee, ignoring any client amount', async () => {
   const r = await request(app).post(URL).send({ ...good, amount: 1 })   // client "amount" must be ignored
   expect(r.status).toBe(200)
-  expect(created.order.amount).toBe(235882)                              // ₹1,999 + ₹359.82
-  expect(r.body.breakdown).toMatchObject({ feePaise: 199900, gstPaise: 35982, totalPaise: 235882, govtPaise: 450000 })
+  expect(created.order.amount).toBe(685882)                              // ₹1,999 + ₹359.82 GST + ₹4,500 govt
+  expect(r.body.breakdown).toMatchObject({ feePaise: 199900, gstPaise: 35982, govtPaise: 450000, govtCollected: true, totalPaise: 685882 })
+  expect(created.payment.breakdown.govtCollected).toBe(true)
   expect(created.payment.trademark).toMatchObject({ applicantType: 'small', classes: 1, brandName: 'Acme Foods' })
-  expect(created.payment.customer.state).toBe('Karnataka')
-  expect(created.so.govtFee).toBe(4500)
+  expect(created.payment.customer.city).toBe('Bengaluru')
+  expect(created.so).toMatchObject({ professionalFee: 1999, gstAmount: 359.82, govtFee: 4500, totalAmount: 6858.82 })
+  expect(created.ld.amount).toBe(6858.82)
   expect(created.ld.serviceTitle).toBe('Trademark Registration — 1 class')
 })
 
-test('government fee scales with classes and applicant type, amount charged does not', async () => {
+test('government fee scales with classes and applicant type; GST stays on the fee only', async () => {
   const r = await request(app).post(URL).send({ ...good, applicantType: 'other', classes: 3 })
   expect(r.status).toBe(200)
   expect(r.body.breakdown.govtPaise).toBe(2700000)                       // 3 × ₹9,000
-  expect(created.order.amount).toBe(235882)
+  expect(r.body.breakdown.gstPaise).toBe(35982)                          // unchanged
+  expect(created.order.amount).toBe(2935882)                             // ₹1,999 + ₹359.82 + ₹27,000
   expect(created.ld.serviceTitle).toBe('Trademark Registration — 3 classes')
 })
 
-test('rejects bad state, applicant type, class count, mobile, email', async () => {
-  for (const bad of [{ state: 'Atlantis' }, { state: '' }, { applicantType: 'vip' }, { classes: 0 }, { classes: 11 }, { classes: 'x' }, { mobile: '12' }, { email: 'nope' }, { name: '' }]) {
+test('city does not change the price', async () => {
+  await request(app).post(URL).send({ ...good, city: 'Mumbai' }); const a = created.order.amount
+  await request(app).post(URL).send({ ...good, city: 'Jaipur' });  const b = created.order.amount
+  expect(a).toBe(b)
+})
+
+test('rejects missing city, bad applicant type, class count, mobile, email, name', async () => {
+  for (const bad of [{ city: '' }, { applicantType: 'vip' }, { classes: 0 }, { classes: 11 }, { classes: 'x' }, { mobile: '12' }, { email: 'nope' }, { name: '' }]) {
     const r = await request(app).post(URL).send({ ...good, ...bad })
     expect(r.status).toBe(400)
   }
+})
+
+test('flag off: charges fee + GST only', () => {
+  jest.resetModules()
+  const pp = require('../config/planPrices')
+  pp.TRADEMARK.collectGovtFeeOnline = false
+  const p = pp.trademarkPrice({ applicantType: 'small', classes: 2 })
+  expect(p.totalPaise).toBe(235882); expect(p.govtPaise).toBe(900000); expect(p.govtCollected).toBe(false)
 })

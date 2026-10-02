@@ -1,7 +1,7 @@
 const router = require('express').Router()
 const { getConfig, createOrder, verifyPayment, createCheckoutOrder, createTrademarkOrder, verifyCheckoutPayment } = require('../controllers/paymentController')
 const { body } = require('express-validator')
-const { APPLICANT_TYPES, INDIAN_STATES, TRADEMARK } = require('../config/planPrices')
+const { APPLICANT_TYPES, TRADEMARK } = require('../config/planPrices')
 const { validate, nameValidator, emailValidator, mobileValidator } = require('../middleware/validate')
 // NOTE: POST /api/payments/webhook is mounted directly in server.js (it needs the raw body).
 const { protect } = require('../middleware/auth')
@@ -24,7 +24,7 @@ router.post('/checkout/trademark/create-order', [
   nameValidator,
   emailValidator,
   mobileValidator,
-  body('state').trim().isIn(INDIAN_STATES).withMessage('Please select your state'),
+  body('city').trim().notEmpty().withMessage('City is required').isLength({ max: 80 }).withMessage('City must be under 80 characters').escape(),
   body('applicantType').trim().isIn(APPLICANT_TYPES).withMessage('Please choose an applicant type'),
   body('classes').isInt({ min: 1, max: TRADEMARK.maxClasses }).withMessage(`Choose between 1 and ${TRADEMARK.maxClasses} classes`).toInt(),
   body('brandName').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 120 }).withMessage('Brand name must be under 120 characters').escape(),

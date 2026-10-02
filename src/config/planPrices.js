@@ -31,10 +31,12 @@ function priceFor(serviceSlug, tier) {
 }
 
 /* ── Trademark registration ───────────────────────────────────────────────────
- * Online payment = LauncherDesk professional fee + 18% GST.
- * The government fee (IP India, Form TM-A, e-filing) is per class and is shown
- * to the customer but paid separately, so it is NOT part of the amount charged
- * and no GST is added on it.
+ * Amount charged online = LauncherDesk professional fee + 18% GST
+ *                         + the government fee (IP India, Form TM-A, per class).
+ * GST is charged on the professional fee ONLY. The government fee is passed
+ * through at actual and is shown on the invoice as its own line.
+ * The government fee depends on who is applying and how many classes — it is
+ * the same in every city, so city is collected for follow-up, not for pricing.
  * Keep professionalFee in sync with the price on the trademark page
  * (frontend: priceCard in src/data/services.js).
  */
@@ -44,28 +46,25 @@ const TRADEMARK = {
   professionalFee: 1999,
   professionalFeePerClass: false,           // true = ₹1,999 is charged for every class
   govtFeePerClass: { small: 4500, other: 9000 },
+  collectGovtFeeOnline: true,               // false = charge fee + GST only, govt fee paid separately
   maxClasses: 10,
 }
 
 const APPLICANT_TYPES = Object.keys(TRADEMARK.govtFeePerClass)
 
-const INDIAN_STATES = [
-  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat',
-  'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra',
-  'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim',
-  'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
-  'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
-  'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
-]
-
-/** Returns { classes, feePaise, gstPaise, govtPaise, totalPaise } or null for invalid input. */
+/** Returns { classes, feePaise, gstPaise, govtPaise, govtCollected, totalPaise } or null for invalid input. */
 function trademarkPrice({ applicantType, classes }) {
   const perClass = TRADEMARK.govtFeePerClass[applicantType]
   const n = Number(classes)
   if (!perClass || !Number.isInteger(n) || n < 1 || n > TRADEMARK.maxClasses) return null
   const feePaise = TRADEMARK.professionalFee * (TRADEMARK.professionalFeePerClass ? n : 1) * 100
   const gstPaise = Math.round(feePaise * GST_RATE)
-  return { classes: n, feePaise, gstPaise, govtPaise: perClass * n * 100, totalPaise: feePaise + gstPaise }
+  const govtPaise = perClass * n * 100
+  const govtCollected = !!TRADEMARK.collectGovtFeeOnline
+  return {
+    classes: n, feePaise, gstPaise, govtPaise, govtCollected,
+    totalPaise: feePaise + gstPaise + (govtCollected ? govtPaise : 0),
+  }
 }
 
-module.exports = { GST_RATE, PLAN_PRICES, SERVICE_TITLES, priceFor, TRADEMARK, APPLICANT_TYPES, INDIAN_STATES, trademarkPrice }
+module.exports = { GST_RATE, PLAN_PRICES, SERVICE_TITLES, priceFor, TRADEMARK, APPLICANT_TYPES, trademarkPrice }
