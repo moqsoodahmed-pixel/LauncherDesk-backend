@@ -29,11 +29,17 @@ const paymentSchema = new mongoose.Schema(
     }],
     // Guest-checkout details and the exact price split that was charged
     customer: {
-      name: String, email: String, phone: String, city: String, whatsappOptIn: Boolean,
+      name: String, email: String, phone: String, city: String, state: String, whatsappOptIn: Boolean,
       _id: false,
     },
     breakdown: {
       feePaise: Number, gstPaise: Number, totalPaise: Number, tier: String,
+      govtPaise: Number,          // estimated government fee — shown to the customer, NOT charged online
+      _id: false,
+    },
+    // Trademark orders: what the customer chose in the checkout popup
+    trademark: {
+      applicantType: String, classes: Number, brandName: String,
       _id: false,
     },
     verifiedAt:    { type: Date },

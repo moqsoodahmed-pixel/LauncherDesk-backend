@@ -117,14 +117,14 @@ exports.verifyPayment = asyncHandler(async (req, res, next) => {
 // The order is attached to the account that matches the email (a basic account
 // is created if there is none yet, so the order shows up when they sign in).
 
-const { priceFor, SERVICE_TITLES, GST_RATE } = require('../config/planPrices')
+const { priceFor, SERVICE_TITLES, GST_RATE, TRADEMARK, trademarkPrice } = require('../config/planPrices')
 const User = require('../models/User')
 
-async function findOrCreateCustomer({ name, email, phone, city }) {
+async function findOrCreateCustomer({ name, email, phone, city, state }) {
   let user = await User.findOne({ email })
   if (!user) {
     user = await User.create({
-      name, email, phone, city,
+      name, email, phone, city, state,
       // Random password: they can claim the account later with "Forgot password".
       password: crypto.randomBytes(24).toString('hex'),
     })
@@ -133,6 +133,7 @@ async function findOrCreateCustomer({ name, email, phone, city }) {
     const patch = {}
     if (!user.phone && phone) patch.phone = phone
     if (!user.city && city) patch.city = city
+    if (!user.state && state) patch.state = state
     if (Object.keys(patch).length) await User.updateOne({ _id: user._id }, patch)
   }
   return user
@@ -193,6 +194,71 @@ exports.createCheckoutOrder = asyncHandler(async (req, res, next) => {
     currency: order.currency,
     keyId: process.env.RAZORPAY_KEY_ID,
     breakdown: { feePaise: price.feePaise, gstPaise: price.gstPaise, totalPaise: price.totalPaise, gstRate: GST_RATE },
+  })
+})
+
+// POST /api/payments/checkout/trademark/create-order — public
+// Amount charged = professional fee + 18% GST. The government fee (per class) is
+// stored for the team and shown to the customer, but paid separately.
+exports.createTrademarkOrder = asyncHandler(async (req, res, next) => {
+  const { name, email, mobile, state, applicantType, classes, brandName, whatsappOptIn } = req.body
+
+  const price = trademarkPrice({ applicantType, classes })
+  if (!price) return next(new AppError('Please choose a valid applicant type and number of classes.', 400))
+
+  const razorpay = getRazorpay()
+  const orderSlug = TRADEMARK.slug
+  const serviceTitle = `${TRADEMARK.title} — ${price.classes} ${price.classes === 1 ? 'class' : 'classes'}`
+  const customer = { name, email, phone: mobile, state, whatsappOptIn: !!whatsappOptIn }
+
+  const user = await findOrCreateCustomer({ name, email, phone: mobile, state })
+
+  const order = await razorpay.orders.create({
+    amount: price.totalPaise,
+    currency: 'INR',
+    receipt: `ld_${Date.now()}`,
+    notes: {
+      userId: user._id.toString(), userName: name, userEmail: email, userPhone: mobile, state,
+      serviceSlug: orderSlug, serviceTitle, applicantType, classes: String(price.classes),
+      brandName: brandName || '', gstIncluded: String(price.gstPaise / 100),
+      govtFeeEstimate: String(price.govtPaise / 100),
+    },
+  })
+
+  const payment = await Payment.create({
+    user: user._id,
+    razorpayOrderId: order.id,
+    serviceSlug: orderSlug,
+    serviceTitle,
+    amountPaise: order.amount,
+    amountRupees: order.amount / 100,
+    currency: 'INR',
+    status: 'created',
+    customer,
+    breakdown: { feePaise: price.feePaise, gstPaise: price.gstPaise, totalPaise: price.totalPaise, govtPaise: price.govtPaise },
+    trademark: { applicantType, classes: price.classes, brandName: brandName || '' },
+  })
+
+  const ldOrder = await require('../services/orderService').createOrder({
+    userId: user._id, serviceSlug: orderSlug, serviceTitle, amount: order.amount / 100, paymentId: payment._id,
+  })
+  await Payment.updateOne({ _id: payment._id }, { order: ldOrder._id })
+  await require('../models/ServiceOrder').updateOne({ _id: ldOrder._id }, {
+    professionalFee: price.feePaise / 100, gstAmount: price.gstPaise / 100,
+    govtFee: price.govtPaise / 100,            // estimate, collected separately
+    totalAmount: price.totalPaise / 100,
+  })
+
+  console.log(`[Payment] Trademark order created: ${order.id} — ${ldOrder.orderNumber} — ₹${order.amount / 100} — ${email} — ${price.classes} class(es), ${applicantType}`)
+
+  res.json({
+    success: true,
+    orderId: order.id,
+    orderNumber: ldOrder.orderNumber,
+    amount: order.amount,
+    currency: order.currency,
+    keyId: process.env.RAZORPAY_KEY_ID,
+    breakdown: { feePaise: price.feePaise, gstPaise: price.gstPaise, totalPaise: price.totalPaise, govtPaise: price.govtPaise, gstRate: GST_RATE },
   })
 })
 

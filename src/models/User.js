@@ -8,6 +8,7 @@ const userSchema = new mongoose.Schema(
     password: { type: String, required: [true, 'Password is required'], minlength: 6, select: false },
     phone: { type: String, trim: true },
     city: { type: String, trim: true },
+    state: { type: String, trim: true },
     role: { type: String, enum: ['user', 'admin', 'partner', 'sales'], default: 'user' },
     isActive: { type: Boolean, default: true },
     emailVerified:   { type: Boolean, default: false },
