@@ -111,6 +111,119 @@ exports.verifyPayment = asyncHandler(async (req, res, next) => {
   })
 })
 
+// ── Guest checkout (no login) ────────────────────────────────────────────────
+// The customer picks a plan, enters name / email / mobile / city, and pays.
+// The price is worked out HERE from the plan, never taken from the browser.
+// The order is attached to the account that matches the email (a basic account
+// is created if there is none yet, so the order shows up when they sign in).
+
+const { priceFor, SERVICE_TITLES, GST_RATE } = require('../config/planPrices')
+const User = require('../models/User')
+
+async function findOrCreateCustomer({ name, email, phone, city }) {
+  let user = await User.findOne({ email })
+  if (!user) {
+    user = await User.create({
+      name, email, phone, city,
+      // Random password: they can claim the account later with "Forgot password".
+      password: crypto.randomBytes(24).toString('hex'),
+    })
+  } else {
+    // Only fill in details that are missing; never overwrite an existing account's data.
+    const patch = {}
+    if (!user.phone && phone) patch.phone = phone
+    if (!user.city && city) patch.city = city
+    if (Object.keys(patch).length) await User.updateOne({ _id: user._id }, patch)
+  }
+  return user
+}
+
+// POST /api/payments/checkout/create-order — public
+exports.createCheckoutOrder = asyncHandler(async (req, res, next) => {
+  const { serviceSlug, tier, name, email, mobile, city, whatsappOptIn } = req.body
+
+  const price = priceFor(serviceSlug, tier)
+  if (!price) return next(new AppError('This plan is not available for online payment. Please contact us.', 400))
+
+  const razorpay = getRazorpay()
+  const serviceTitle = `${SERVICE_TITLES[serviceSlug]} — ${tier} Plan`
+  const orderSlug = `${serviceSlug}-${tier.toLowerCase()}`
+  const customer = { name, email, phone: mobile, city, whatsappOptIn: !!whatsappOptIn }
+
+  const user = await findOrCreateCustomer({ name, email, phone: mobile, city })
+
+  const order = await razorpay.orders.create({
+    amount: price.totalPaise,
+    currency: 'INR',
+    receipt: `ld_${Date.now()}`,
+    notes: {
+      userId: user._id.toString(), userName: name, userEmail: email, userPhone: mobile, city,
+      serviceSlug: orderSlug, serviceTitle, gstIncluded: String(price.gstPaise / 100),
+    },
+  })
+
+  const payment = await Payment.create({
+    user: user._id,
+    razorpayOrderId: order.id,
+    serviceSlug: orderSlug,
+    serviceTitle,
+    amountPaise: order.amount,
+    amountRupees: order.amount / 100,
+    currency: 'INR',
+    status: 'created',
+    customer,
+    breakdown: { feePaise: price.feePaise, gstPaise: price.gstPaise, totalPaise: price.totalPaise, tier },
+  })
+
+  const ldOrder = await require('../services/orderService').createOrder({
+    userId: user._id, serviceSlug: orderSlug, serviceTitle, amount: order.amount / 100, paymentId: payment._id,
+  })
+  await Payment.updateOne({ _id: payment._id }, { order: ldOrder._id })
+  await require('../models/ServiceOrder').updateOne({ _id: ldOrder._id }, {
+    professionalFee: price.feePaise / 100, gstAmount: price.gstPaise / 100, totalAmount: price.totalPaise / 100,
+  })
+
+  console.log(`[Payment] Guest order created: ${order.id} — ${ldOrder.orderNumber} — ₹${order.amount / 100} — ${email} — ${orderSlug}`)
+
+  res.json({
+    success: true,
+    orderId: order.id,
+    orderNumber: ldOrder.orderNumber,
+    amount: order.amount,
+    currency: order.currency,
+    keyId: process.env.RAZORPAY_KEY_ID,
+    breakdown: { feePaise: price.feePaise, gstPaise: price.gstPaise, totalPaise: price.totalPaise, gstRate: GST_RATE },
+  })
+})
+
+// POST /api/payments/checkout/verify — public; the Razorpay signature is the proof of payment
+exports.verifyCheckoutPayment = asyncHandler(async (req, res, next) => {
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    return next(new AppError('Payment verification data missing', 400))
+  }
+  const payment = await Payment.findOne({ razorpayOrderId: razorpay_order_id })
+  if (!payment) return next(new AppError('Payment record not found', 404))
+
+  const expected = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+    .update(`${razorpay_order_id}|${razorpay_payment_id}`).digest('hex')
+  const given = String(razorpay_signature)
+  const sigOk = expected.length === given.length && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(given))
+  if (!sigOk) {
+    console.warn(`[Payment] Signature mismatch on guest verify: ${razorpay_order_id}`)
+    return next(new AppError('Payment verification failed — please contact support', 400))
+  }
+
+  const { order, alreadyProcessed } = await require('../services/paymentService').markPaid({
+    razorpayOrderId: razorpay_order_id, razorpayPaymentId: razorpay_payment_id, source: 'customer',
+  })
+  console.log(`[Payment] Guest verified${alreadyProcessed ? ' (already processed)' : ''}: ${razorpay_payment_id}`)
+  res.json({
+    success: true, orderNumber: order?.orderNumber,
+    message: alreadyProcessed ? 'Payment already confirmed.' : 'Payment verified successfully. Our team will be in touch shortly!',
+  })
+})
+
 /**
  * POST /api/payments/webhook — Razorpay webhooks (server-to-server, source of truth).
  * Mounted with express.raw() in server.js so the signature is checked against the exact body.

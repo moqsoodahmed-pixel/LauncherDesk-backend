@@ -27,6 +27,15 @@ const paymentSchema = new mongoose.Schema(
       processedAt: Date,
       _id: false,
     }],
+    // Guest-checkout details and the exact price split that was charged
+    customer: {
+      name: String, email: String, phone: String, city: String, whatsappOptIn: Boolean,
+      _id: false,
+    },
+    breakdown: {
+      feePaise: Number, gstPaise: Number, totalPaise: Number, tier: String,
+      _id: false,
+    },
     verifiedAt:    { type: Date },
     failureReason: { type: String },
     processedAt:   { type: Date },
