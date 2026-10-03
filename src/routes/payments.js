@@ -5,6 +5,7 @@ const { APPLICANT_TYPES, TRADEMARK } = require('../config/planPrices')
 const { validate, nameValidator, emailValidator, mobileValidator } = require('../middleware/validate')
 // NOTE: POST /api/payments/webhook is mounted directly in server.js (it needs the raw body).
 const { protect } = require('../middleware/auth')
+const { trademarkLogo } = require('../middleware/trademarkLogo')
 
 router.get('/config', getConfig)
 router.post('/create-order', protect, createOrder)
@@ -20,7 +21,8 @@ router.post('/checkout/create-order', [
   body('city').trim().notEmpty().withMessage('City is required').isLength({ max: 80 }).withMessage('City must be under 80 characters').escape(),
   body('whatsappOptIn').optional().isBoolean(),
 ], validate, createCheckoutOrder)
-router.post('/checkout/trademark/create-order', [
+// Accepts JSON, or multipart/form-data when the customer attaches a logo (PDF only).
+router.post('/checkout/trademark/create-order', trademarkLogo, [
   nameValidator,
   emailValidator,
   mobileValidator,

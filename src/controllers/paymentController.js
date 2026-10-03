@@ -217,6 +217,8 @@ exports.createTrademarkOrder = asyncHandler(async (req, res, next) => {
 
   const price = trademarkPrice({ applicantType, classes, classNumbers })
   if (!price) return next(new AppError('Please choose a valid applicant type and number of classes.', 400))
+  const { looksLikePdf } = require('../middleware/trademarkLogo')
+  if (req.file && !looksLikePdf(req.file.buffer)) return next(new AppError('Logo must be a PDF file', 400))
 
   const razorpay = getRazorpay()
   const orderSlug = TRADEMARK.slug
@@ -233,7 +235,7 @@ exports.createTrademarkOrder = asyncHandler(async (req, res, next) => {
       userId: user._id.toString(), userName: name, userEmail: email, userPhone: mobile, city,
       serviceSlug: orderSlug, serviceTitle, applicantType, classes: String(price.classes),
       classNumbers: price.classNumbers.join(',') || 'expert to choose',
-      brandName: brandName || '', gstIncluded: String(price.gstPaise / 100),
+      brandName: brandName || '', gstIncluded: String(price.gstPaise / 100), logoUploaded: String(!!req.file),
       govtFee: String(price.govtPaise / 100), govtFeeCollected: String(price.govtCollected),
     },
   })
@@ -267,7 +269,23 @@ exports.createTrademarkOrder = asyncHandler(async (req, res, next) => {
     govtFee: price.govtPaise / 100, totalAmount: price.totalPaise / 100,
   })
 
-  console.log(`[Payment] Trademark order created: ${order.id} — ${ldOrder.orderNumber} — ₹${order.amount / 100} — ${email} — ${price.classes} class(es)${price.classNumbers.length ? ` [${price.classNumbers.join(', ')}]` : ''}, ${applicantType}, ${city}`)
+  // Brand logo (optional, PDF). Saved against the order as the "Brand name / logo file"
+  // document, so the customer is not asked for it again after payment.
+  if (req.file) {
+    const fs = require('fs')
+    const path = require('path')
+    const { DIR } = require('../middleware/privateUpload')
+    const stored = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}.pdf`
+    await fs.promises.writeFile(path.join(DIR, stored), req.file.buffer)
+    await require('../models/ServiceDocument').create({
+      order: ldOrder._id, user: user._id, name: 'Brand name / logo file', type: 'submitted',
+      description: brandName ? `Logo for "${brandName}"` : 'Brand logo',
+      filename: req.file.originalname, filePath: stored, mimeType: 'application/pdf', fileSize: req.file.size,
+      status: 'UPLOADED',
+    })
+  }
+
+  console.log(`[Payment] Trademark order created: ${order.id} — ${ldOrder.orderNumber} — ₹${order.amount / 100} — ${email} — ${price.classes} class(es)${price.classNumbers.length ? ` [${price.classNumbers.join(', ')}]` : ''}, ${applicantType}, ${city}${req.file ? ', logo attached' : ''}`)
 
   res.json({
     success: true,
