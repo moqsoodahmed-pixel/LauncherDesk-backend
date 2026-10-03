@@ -47,45 +47,24 @@ const TRADEMARK = {
   professionalFeePerClass: false,           // true = ₹1,999 is charged for every class
   govtFeePerClass: { small: 4500, other: 9000 },
   collectGovtFeeOnline: true,               // false = charge fee + GST only, govt fee paid separately
-  maxClasses: 45,                           // all 45 Nice classes can be chosen
+  maxClasses: 10,
 }
 
 const APPLICANT_TYPES = Object.keys(TRADEMARK.govtFeePerClass)
 
-/** Cleans a list of class numbers: whole numbers 1–45, no duplicates, sorted. null if invalid. */
-function cleanClassNumbers(list) {
-  if (list == null) return []
-  if (!Array.isArray(list)) return null
-  const nums = list.map(Number)
-  if (nums.some(n => !Number.isInteger(n) || n < 1 || n > 45)) return null
-  return [...new Set(nums)].sort((a, b) => a - b)
-}
-
-/**
- * Returns { classes, classNumbers, feePaise, gstPaise, govtPaise, govtCollected, totalPaise } or null for invalid input.
- * When classNumbers are sent (e.g. [9, 25, 35]) the class count comes from that list.
- */
-function trademarkPrice({ applicantType, classes, classNumbers }) {
+/** Returns { classes, feePaise, gstPaise, govtPaise, govtCollected, totalPaise } or null for invalid input. */
+function trademarkPrice({ applicantType, classes }) {
   const perClass = TRADEMARK.govtFeePerClass[applicantType]
-  const picked = cleanClassNumbers(classNumbers)
-  if (picked === null) return null
-  const n = picked.length || Number(classes)
+  const n = Number(classes)
   if (!perClass || !Number.isInteger(n) || n < 1 || n > TRADEMARK.maxClasses) return null
   const feePaise = TRADEMARK.professionalFee * (TRADEMARK.professionalFeePerClass ? n : 1) * 100
   const gstPaise = Math.round(feePaise * GST_RATE)
   const govtPaise = perClass * n * 100
   const govtCollected = !!TRADEMARK.collectGovtFeeOnline
   return {
-    classes: n, classNumbers: picked, feePaise, gstPaise, govtPaise, govtCollected,
+    classes: n, feePaise, gstPaise, govtPaise, govtCollected,
     totalPaise: feePaise + gstPaise + (govtCollected ? govtPaise : 0),
   }
-}
-
-/** Simple service price shown as "₹X + GST": fee + 18% GST, in paise. */
-function priceWithGst(rupees) {
-  const feePaise = Math.round(Number(rupees) * 100)
-  const gstPaise = Math.round(feePaise * GST_RATE)
-  return { feePaise, gstPaise, totalPaise: feePaise + gstPaise }
 }
 
 /* ── e-Stamp paper ───────────────────────────────────────────────────────────
@@ -97,7 +76,7 @@ function priceWithGst(rupees) {
  */
 const ESTAMP = {
   serviceFee: 0,
-  courierFee: 0,
+  courierFee: 150,          // doorstep delivery of the original — GST INCLUDED (customer pays exactly ₹150)
   minDuty: 1,
   maxDuty: 100000,
   states: [
@@ -113,10 +92,14 @@ function estampPrice({ stampDuty, delivery }) {
   const duty = Number(stampDuty)
   if (!Number.isInteger(duty) || duty < ESTAMP.minDuty || duty > ESTAMP.maxDuty) return null
   if (!['email', 'courier'].includes(delivery)) return null
-  const feePaise = (ESTAMP.serviceFee + (delivery === 'courier' ? ESTAMP.courierFee : 0)) * 100
-  const gstPaise = Math.round(feePaise * GST_RATE)
+  // Service fee: GST added on top. Courier: the ₹ amount already includes GST, split out for the invoice.
+  const servicePaise = ESTAMP.serviceFee * 100
+  const courierTotal = delivery === 'courier' ? ESTAMP.courierFee * 100 : 0
+  const courierBase = Math.round(courierTotal / (1 + GST_RATE))
+  const feePaise = servicePaise + courierBase
+  const gstPaise = Math.round(servicePaise * GST_RATE) + (courierTotal - courierBase)
   const dutyPaise = duty * 100
   return { dutyPaise, feePaise, gstPaise, totalPaise: dutyPaise + feePaise + gstPaise }
 }
 
-module.exports = { GST_RATE, PLAN_PRICES, SERVICE_TITLES, priceFor, priceWithGst, TRADEMARK, APPLICANT_TYPES, trademarkPrice, cleanClassNumbers, ESTAMP, estampPrice }
+module.exports = { GST_RATE, PLAN_PRICES, SERVICE_TITLES, priceFor, TRADEMARK, APPLICANT_TYPES, trademarkPrice, ESTAMP, estampPrice }

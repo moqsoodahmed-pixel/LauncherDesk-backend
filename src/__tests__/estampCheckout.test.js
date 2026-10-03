@@ -38,7 +38,7 @@ const good = {
 }
 const post = (body, auth = 'Bearer ok') => request(app).post(URL).set('Authorization', auth).send(body)
 
-afterEach(() => { pp.ESTAMP.serviceFee = 0; pp.ESTAMP.courierFee = 0 })
+afterEach(() => { pp.ESTAMP.serviceFee = 0; pp.ESTAMP.courierFee = 150 })
 
 test('login is required', async () => {
   const r = await post(good, 'Bearer nope')
@@ -55,14 +55,20 @@ test('with no fees set, charges exactly the stamp duty and ignores any client am
   expect(created.so.details).toMatchObject({ kind: 'e-stamp', state: 'Karnataka', firstParty: 'Asha Rao', stampDuty: 100, delivery: 'Email scan only' })
 })
 
-test('service + courier fees get 18% GST; stamp duty does not', async () => {
-  pp.ESTAMP.serviceFee = 199; pp.ESTAMP.courierFee = 150
+test('courier adds exactly ₹150 (GST included); stamp duty has no GST', async () => {
   const r = await post({ ...good, stampDuty: 500, delivery: 'courier', address: '12 MG Road', city: 'Bengaluru', pincode: '560001' })
   expect(r.status).toBe(200)
-  // ₹500 duty + ₹349 fees + ₹62.82 GST = ₹911.82
-  expect(r.body.breakdown).toMatchObject({ dutyPaise: 50000, feePaise: 34900, gstPaise: 6282, totalPaise: 91182 })
-  expect(created.order.amount).toBe(91182)
-  expect(created.so).toMatchObject({ professionalFee: 349, gstAmount: 62.82, govtFee: 500, totalAmount: 911.82 })
+  // ₹500 duty + ₹150 courier (₹127.12 + ₹22.88 GST) = ₹650
+  expect(r.body.breakdown).toMatchObject({ dutyPaise: 50000, feePaise: 12712, gstPaise: 2288, totalPaise: 65000 })
+  expect(created.order.amount).toBe(65000)
+})
+
+test('a service fee gets 18% GST on top; courier stays ₹150 all-in', async () => {
+  pp.ESTAMP.serviceFee = 199
+  const r = await post({ ...good, stampDuty: 500, delivery: 'courier', address: '12 MG Road', city: 'Bengaluru', pincode: '560001' })
+  // ₹500 duty + ₹199 + ₹35.82 GST + ₹150 courier = ₹884.82
+  expect(r.body.breakdown).toMatchObject({ dutyPaise: 50000, feePaise: 32612, gstPaise: 5870, totalPaise: 88482 })
+  expect(created.so).toMatchObject({ professionalFee: 326.12, gstAmount: 58.7, govtFee: 500, totalAmount: 884.82 })
   expect(created.so.details.deliveryAddress).toMatchObject({ city: 'Bengaluru', pincode: '560001' })
 })
 
