@@ -307,6 +307,21 @@ exports.createTrademarkOrder = asyncHandler(async (req, res, next) => {
 exports.createEStampOrder = asyncHandler(async (req, res, next) => {
   const b = req.body
   if (!ESTAMP.states.includes(b.state)) return next(new AppError('Please choose a valid state', 400))
+  // Articles: for verified states the article must exist; where the state's rules fix or
+  // calculate the duty, the server recalculates it and rejects a different amount.
+  const { STATE_ARTICLES, dutyFromRule } = require('../config/estampArticles')
+  let articleRule = null
+  if (STATE_ARTICLES[b.state] && b.articleCode) {
+    const art = STATE_ARTICLES[b.state].find(a => a.code === b.articleCode && a.label === b.documentType)
+    if (!art) return next(new AppError('Please choose the document type from the list', 400))
+    if (art.rule && art.rule.type !== 'text') {
+      const base = art.rule.base === 'Consideration amount' ? b.consideration : b.baseAmount
+      const r = dutyFromRule(art.rule, base)
+      if (!r || r.error) return next(new AppError(r?.error || 'Enter the amount needed to work out the stamp duty', 400))
+      if (Number(b.stampDuty) !== r.duty) return next(new AppError(`The stamp duty for this article is ₹${r.duty.toLocaleString('en-IN')}`, 400))
+      articleRule = { base: art.rule.base, baseAmount: Number(base) }
+    }
+  }
   const price = estampPrice({ stampDuty: b.stampDuty, delivery: b.delivery })
   if (!price) return next(new AppError(`Stamp duty must be a whole amount between ₹${ESTAMP.minDuty} and ₹${ESTAMP.maxDuty.toLocaleString('en-IN')}`, 400))
 
@@ -317,7 +332,8 @@ exports.createEStampOrder = asyncHandler(async (req, res, next) => {
   const customer = { name: b.name, email: b.email, phone: b.mobile, city: b.city || '' }
   const details = {
     kind: 'e-stamp', state: stateName, firstParty: b.firstParty, secondParty: b.secondParty, stampDutyPaidBy: b.payer,
-    documentType: b.documentType, purpose: b.purpose,
+    documentType: b.articleCode ? `Article ${b.articleCode} ${b.documentType}` : b.documentType, purpose: b.purpose,
+    ...(articleRule ? { dutyCalculatedFrom: `${articleRule.base}: ₹${articleRule.baseAmount.toLocaleString('en-IN')}` } : {}),
     considerationAmount: b.consideration !== undefined && b.consideration !== '' ? Number(b.consideration) : null,
     stampDuty: duty, printDocumentOnStamp: !!b.printDocument,
     delivery: b.delivery === 'courier' ? 'Email scan + courier' : 'Email scan only',

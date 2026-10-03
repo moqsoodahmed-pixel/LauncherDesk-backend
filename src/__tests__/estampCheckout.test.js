@@ -79,3 +79,40 @@ test('rejects bad input', async () => {
     expect([400, 422]).toContain(r.status)
   }
 })
+
+describe('stamp-act articles', () => {
+  test('Karnataka affidavit (Art. 4) must be the fixed ₹100', async () => {
+    const base = { ...good, articleCode: '4', documentType: 'Affidavit' }
+    expect((await post({ ...base, stampDuty: 20 })).status).toBe(400)
+    const ok = await post({ ...base, stampDuty: 100 })
+    expect(ok.status).toBe(200)
+    expect(created.so.details.documentType).toBe('Article 4 Affidavit')
+  })
+
+  test('Karnataka indemnity bond (Art. 29) = 2% of consideration, max ₹500', async () => {
+    const base = { ...good, articleCode: '29', documentType: 'Indemnity Bond' }
+    expect((await post({ ...base, consideration: 10000, stampDuty: 100 })).status).toBe(400)
+    expect((await post({ ...base, consideration: 10000, stampDuty: 200 })).status).toBe(200)
+    expect((await post({ ...base, consideration: 100000, stampDuty: 500 })).status).toBe(200)
+  })
+
+  test('Karnataka title-deed loan (Art. 6(1)(ii)) uses the loan amount and the ₹10 lakh limit', async () => {
+    const base = { ...good, articleCode: '6(1)(ii)', documentType: 'Agreement relating to deposit of title deeds, loan up to ₹10 lakh' }
+    expect((await post({ ...base, baseAmount: 500000, stampDuty: 2500 })).status).toBe(200)
+    expect(created.so.details.dutyCalculatedFrom).toBe('Loan amount: ₹5,00,000')
+    expect((await post({ ...base, baseAmount: 2000000, stampDuty: 10000 })).status).toBe(400)
+  })
+
+  test('articles without a duty rule keep the customer’s amount; unknown articles are rejected', async () => {
+    const lease = { ...good, articleCode: '30(1)(i)', documentType: 'Lease of immovable property, up to 1 year, residential', stampDuty: 500 }
+    expect((await post(lease)).status).toBe(200)
+    expect((await post({ ...lease, articleCode: '999' })).status).toBe(400)
+  })
+
+  test('states without an official list accept plain document types', async () => {
+    const r = await post({ ...good, state: 'goa-not-listed' })
+    expect(r.status).toBe(400)   // still must be a supported state
+    const ok = await post({ ...good, state: 'maharashtra', stateName: 'Maharashtra', documentType: 'Rent / Lease Agreement', stampDuty: 500 })
+    expect(ok.status).toBe(200)
+  })
+})
