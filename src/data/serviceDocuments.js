@@ -15,6 +15,9 @@ const SERVICE_DOCUMENTS = {
   'trademark-registration': ['Brand name / logo file', 'PAN or Aadhaar of applicant', 'MSME certificate (if available)', 'Signed authorisation (TM-48), we will share the draft'],
   'fssai-registration': ['Photo ID of food business operator', 'Address proof of premises', 'List of food products'],
   'iso-certification': ['Company registration certificate', 'GST certificate', 'Scope of business / activities'],
+  // e-Stamp: plain stamp paper needs no documents; "print on e-stamp" needs the customer's document
+  'e-stamp-paper': [],
+  'e-stamp-paper-print': ['Document to be printed on the e-Stamp (PDF or Word)'],
   'startup-india-dpiit': ['Certificate of incorporation', 'Company PAN', 'Brief write-up of the innovation', 'Website or pitch deck (if any)'],
 }
 const DEFAULT_DOCUMENTS = ['PAN card', 'Aadhaar card']

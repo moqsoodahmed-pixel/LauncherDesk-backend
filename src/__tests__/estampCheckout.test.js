@@ -1,0 +1,81 @@
+// e-Stamp checkout: charged = stamp duty (at actual, no GST) + LauncherDesk fees + 18% GST on the fees.
+// The price is recalculated on the server; the browser only sends the customer's choices.
+process.env.RAZORPAY_KEY_ID = 'rzp_test_x'
+process.env.RAZORPAY_KEY_SECRET = 'secret123'
+const express = require('express')
+const request = require('supertest')
+
+const created = {}
+jest.mock('razorpay', () => jest.fn().mockImplementation(() => ({
+  orders: { create: jest.fn(async (o) => { created.order = o; return { id: 'order_es', amount: o.amount, currency: o.currency } }) },
+})))
+jest.mock('../middleware/auth', () => ({
+  protect: (req, res, next) => {
+    if (req.headers.authorization !== 'Bearer ok') return res.status(401).json({ success: false, message: 'Not authorised' })
+    req.user = { _id: 'u9', name: 'Asha Rao', email: 'asha@gmail.com' }; next()
+  },
+  restrictTo: () => (_req, _res, next) => next(),
+}))
+jest.mock('../models/Payment', () => ({
+  create: jest.fn(async (d) => { created.payment = d; return { _id: 'p1', ...d } }),
+  updateOne: jest.fn(), findOne: jest.fn(),
+}))
+jest.mock('../models/ServiceOrder', () => ({ updateOne: jest.fn((...a) => { created.so = a[1] }) }))
+jest.mock('../services/orderService', () => ({ createOrder: jest.fn(async (o) => { created.ld = o; return { _id: 'o1', orderNumber: 'LD-2026-000010' } }) }))
+jest.mock('../services/paymentService', () => ({ markPaid: jest.fn() }))
+
+const pp = require('../config/planPrices')
+const app = express()
+app.use(express.json())
+app.use('/api/payments', require('../routes/payments'))
+app.use((err, _req, res, _next) => res.status(err.statusCode || 500).json({ success: false, message: err.message }))
+
+const URL = '/api/payments/checkout/estamp/create-order'
+const good = {
+  state: 'karnataka', stateName: 'Karnataka', firstParty: 'Asha Rao', secondParty: 'NIL', payer: 'First Party',
+  documentType: 'Affidavit', purpose: 'Address affidavit', stampDuty: 100, delivery: 'email',
+  name: 'Asha Rao', email: 'asha@gmail.com', mobile: '9876543210',
+}
+const post = (body, auth = 'Bearer ok') => request(app).post(URL).set('Authorization', auth).send(body)
+
+afterEach(() => { pp.ESTAMP.serviceFee = 0; pp.ESTAMP.courierFee = 0 })
+
+test('login is required', async () => {
+  const r = await post(good, 'Bearer nope')
+  expect(r.status).toBe(401)
+})
+
+test('with no fees set, charges exactly the stamp duty and ignores any client amount', async () => {
+  const r = await post({ ...good, amount: 1 })
+  expect(r.status).toBe(200)
+  expect(created.order.amount).toBe(10000)
+  expect(r.body.breakdown).toMatchObject({ dutyPaise: 10000, feePaise: 0, gstPaise: 0, totalPaise: 10000 })
+  expect(created.payment.breakdown).toMatchObject({ govtPaise: 10000, govtCollected: true, totalPaise: 10000 })
+  expect(created.ld.serviceSlug).toBe('e-stamp-paper')
+  expect(created.so.details).toMatchObject({ kind: 'e-stamp', state: 'Karnataka', firstParty: 'Asha Rao', stampDuty: 100, delivery: 'Email scan only' })
+})
+
+test('service + courier fees get 18% GST; stamp duty does not', async () => {
+  pp.ESTAMP.serviceFee = 199; pp.ESTAMP.courierFee = 150
+  const r = await post({ ...good, stampDuty: 500, delivery: 'courier', address: '12 MG Road', city: 'Bengaluru', pincode: '560001' })
+  expect(r.status).toBe(200)
+  // ₹500 duty + ₹349 fees + ₹62.82 GST = ₹911.82
+  expect(r.body.breakdown).toMatchObject({ dutyPaise: 50000, feePaise: 34900, gstPaise: 6282, totalPaise: 91182 })
+  expect(created.order.amount).toBe(91182)
+  expect(created.so).toMatchObject({ professionalFee: 349, gstAmount: 62.82, govtFee: 500, totalAmount: 911.82 })
+  expect(created.so.details.deliveryAddress).toMatchObject({ city: 'Bengaluru', pincode: '560001' })
+})
+
+test('print option uses the print slug (customer is asked to upload the document)', async () => {
+  await post({ ...good, printDocument: true })
+  expect(created.ld.serviceSlug).toBe('e-stamp-paper-print')
+})
+
+test('rejects bad input', async () => {
+  for (const bad of [{ state: 'atlantis' }, { stampDuty: 0 }, { stampDuty: 100001 }, { stampDuty: 'x' }, { payer: 'Someone' },
+    { firstParty: '' }, { purpose: '' }, { delivery: 'drone' }, { mobile: '12' }, { email: 'nope' },
+    { delivery: 'courier' }, { delivery: 'courier', address: 'x', city: 'y', pincode: '12' }]) {
+    const r = await post({ ...good, ...bad })
+    expect([400, 422]).toContain(r.status)
+  }
+})

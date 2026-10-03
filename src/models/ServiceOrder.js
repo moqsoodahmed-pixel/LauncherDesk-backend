@@ -41,6 +41,8 @@ const serviceOrderSchema = new mongoose.Schema(
       default: 'CREATED',
       index: true,
     },
+    // Form data captured at checkout (e.g. e-stamp parties, document type, delivery address)
+    details: { type: mongoose.Schema.Types.Mixed },
     holdReason: { type: String },
     actionRequired: {
       what:     String,

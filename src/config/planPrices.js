@@ -67,4 +67,35 @@ function trademarkPrice({ applicantType, classes }) {
   }
 }
 
-module.exports = { GST_RATE, PLAN_PRICES, SERVICE_TITLES, priceFor, TRADEMARK, APPLICANT_TYPES, trademarkPrice }
+/* ── e-Stamp paper ───────────────────────────────────────────────────────────
+ * Amount charged online = stamp duty (chosen by the customer, passed through at
+ * actual, no GST) + LauncherDesk service fee + courier fee (if doorstep delivery)
+ * + 18% GST on LauncherDesk's fees only.
+ * ⚠ Set serviceFee / courierFee to your real prices, and keep them in sync with
+ *   ESTAMP_FEES in the frontend (src/data/estamp.js), which is display-only.
+ */
+const ESTAMP = {
+  serviceFee: 0,
+  courierFee: 0,
+  minDuty: 1,
+  maxDuty: 100000,
+  states: [
+    'andaman-and-nicobar', 'andhra-pradesh', 'arunachal-pradesh', 'assam', 'bihar', 'delhi', 'gujarat', 'haryana',
+    'himachal-pradesh', 'jammu-and-kashmir', 'jharkhand', 'karnataka', 'ladakh', 'madhya-pradesh', 'maharashtra',
+    'manipur', 'meghalaya', 'puducherry', 'punjab', 'rajasthan', 'tamil-nadu', 'telangana', 'uttar-pradesh',
+    'uttarakhand', 'west-bengal',
+  ],
+}
+
+/** Returns { dutyPaise, feePaise, gstPaise, totalPaise } or null for invalid input. */
+function estampPrice({ stampDuty, delivery }) {
+  const duty = Number(stampDuty)
+  if (!Number.isInteger(duty) || duty < ESTAMP.minDuty || duty > ESTAMP.maxDuty) return null
+  if (!['email', 'courier'].includes(delivery)) return null
+  const feePaise = (ESTAMP.serviceFee + (delivery === 'courier' ? ESTAMP.courierFee : 0)) * 100
+  const gstPaise = Math.round(feePaise * GST_RATE)
+  const dutyPaise = duty * 100
+  return { dutyPaise, feePaise, gstPaise, totalPaise: dutyPaise + feePaise + gstPaise }
+}
+
+module.exports = { GST_RATE, PLAN_PRICES, SERVICE_TITLES, priceFor, TRADEMARK, APPLICANT_TYPES, trademarkPrice, ESTAMP, estampPrice }

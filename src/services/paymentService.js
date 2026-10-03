@@ -94,6 +94,13 @@ async function recordRefund({ razorpayPaymentId, refundId, amountPaise, status, 
   return { payment, order }
 }
 
+const { esc } = require('./notification/render')
+const label = k => k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase())
+const flat = (obj, pre = '') => Object.entries(obj || {}).flatMap(([k, v]) =>
+  v && typeof v === 'object' && !Array.isArray(v) ? flat(v, `${pre}${label(k)} › `) : [[`${pre}${label(k)}`, Array.isArray(v) ? v.join(', ') : v]])
+const detailsHtml = d => d ? `<p><strong>Order details</strong></p><table cellpadding="4" style="border-collapse:collapse;font-size:13px">${flat(d).map(([k, v]) => `<tr><td style="color:#64748B">${esc(k)}</td><td>${esc(v ?? '—')}</td></tr>`).join('')}</table>` : ''
+const detailsText = d => d ? `Order details:\n${flat(d).map(([k, v]) => `  ${k}: ${v ?? '—'}`).join('\n')}` : ''
+
 /** Internal alert to the LauncherDesk team (not a customer email). */
 async function notifyTeam(payment, order) {
   const to = process.env.SUPPORT_EMAIL
@@ -102,8 +109,8 @@ async function notifyTeam(payment, order) {
   const amt = `₹${payment.amountRupees.toLocaleString('en-IN')}`
   await getProvider().send({
     to, subject: `Payment received: ${order.serviceTitle} — ${amt} (${order.orderNumber})`,
-    html: `<p>New paid order <strong>${order.orderNumber}</strong></p><p>Service: ${order.serviceTitle}<br>Amount: ${amt}<br>Razorpay payment: ${payment.razorpayPaymentId}</p>`,
-    text: `New paid order ${order.orderNumber}\nService: ${order.serviceTitle}\nAmount: ${amt}\nRazorpay payment: ${payment.razorpayPaymentId}`,
+    html: `<p>New paid order <strong>${order.orderNumber}</strong></p><p>Service: ${esc(order.serviceTitle)}<br>Amount: ${amt}<br>Razorpay payment: ${payment.razorpayPaymentId}</p>${detailsHtml(order.details)}`,
+    text: `New paid order ${order.orderNumber}\nService: ${order.serviceTitle}\nAmount: ${amt}\nRazorpay payment: ${payment.razorpayPaymentId}\n${detailsText(order.details)}`,
   })
 }
 

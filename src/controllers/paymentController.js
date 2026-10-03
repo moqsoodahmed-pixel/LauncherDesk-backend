@@ -117,7 +117,7 @@ exports.verifyPayment = asyncHandler(async (req, res, next) => {
 // The order is attached to the account that matches the email (a basic account
 // is created if there is none yet, so the order shows up when they sign in).
 
-const { priceFor, SERVICE_TITLES, GST_RATE, TRADEMARK, trademarkPrice } = require('../config/planPrices')
+const { priceFor, SERVICE_TITLES, GST_RATE, TRADEMARK, trademarkPrice, ESTAMP, estampPrice } = require('../config/planPrices')
 const User = require('../models/User')
 
 async function findOrCreateCustomer({ name, email, phone, city }) {
@@ -263,6 +263,79 @@ exports.createTrademarkOrder = asyncHandler(async (req, res, next) => {
       feePaise: price.feePaise, gstPaise: price.gstPaise, govtPaise: price.govtPaise,
       govtCollected: price.govtCollected, totalPaise: price.totalPaise, gstRate: GST_RATE,
     },
+  })
+})
+
+// POST /api/payments/checkout/estamp/create-order — logged-in customers
+// Amount = stamp duty (at actual, no GST) + LauncherDesk fees + 18% GST on the fees.
+// Everything is recalculated here from config/planPrices.js; the browser only sends choices.
+exports.createEStampOrder = asyncHandler(async (req, res, next) => {
+  const b = req.body
+  if (!ESTAMP.states.includes(b.state)) return next(new AppError('Please choose a valid state', 400))
+  const price = estampPrice({ stampDuty: b.stampDuty, delivery: b.delivery })
+  if (!price) return next(new AppError(`Stamp duty must be a whole amount between ₹${ESTAMP.minDuty} and ₹${ESTAMP.maxDuty.toLocaleString('en-IN')}`, 400))
+
+  const stateName = b.stateName || b.state
+  const duty = price.dutyPaise / 100
+  const orderSlug = b.printDocument ? 'e-stamp-paper-print' : 'e-stamp-paper'
+  const serviceTitle = `e-Stamp Paper — ${stateName} (₹${duty.toLocaleString('en-IN')})`
+  const customer = { name: b.name, email: b.email, phone: b.mobile, city: b.city || '' }
+  const details = {
+    kind: 'e-stamp', state: stateName, firstParty: b.firstParty, secondParty: b.secondParty, stampDutyPaidBy: b.payer,
+    documentType: b.documentType, purpose: b.purpose,
+    considerationAmount: b.consideration !== undefined && b.consideration !== '' ? Number(b.consideration) : null,
+    stampDuty: duty, printDocumentOnStamp: !!b.printDocument,
+    delivery: b.delivery === 'courier' ? 'Email scan + courier' : 'Email scan only',
+    contact: { name: b.name, mobile: b.mobile, email: b.email },
+    ...(b.delivery === 'courier' ? { deliveryAddress: { address: b.address, city: b.city, pincode: b.pincode, state: stateName } } : {}),
+  }
+
+  const razorpay = getRazorpay()
+  const order = await razorpay.orders.create({
+    amount: price.totalPaise,
+    currency: 'INR',
+    receipt: `ld_${Date.now()}`,
+    notes: {
+      userId: req.user._id.toString(), userName: b.name, userEmail: b.email, userPhone: b.mobile,
+      serviceSlug: orderSlug, serviceTitle, state: stateName, stampDuty: String(duty),
+      firstParty: String(b.firstParty).slice(0, 200), secondParty: String(b.secondParty).slice(0, 200),
+    },
+  })
+
+  const payment = await Payment.create({
+    user: req.user._id,
+    razorpayOrderId: order.id,
+    serviceSlug: orderSlug,
+    serviceTitle,
+    amountPaise: order.amount,
+    amountRupees: order.amount / 100,
+    currency: 'INR',
+    status: 'created',
+    customer,
+    // Stamp duty is a government levy passed through at actual → shown as its own invoice line.
+    breakdown: { feePaise: price.feePaise, gstPaise: price.gstPaise, govtPaise: price.dutyPaise, govtCollected: true, totalPaise: price.totalPaise },
+  })
+
+  const ldOrder = await require('../services/orderService').createOrder({
+    userId: req.user._id, serviceSlug: orderSlug, serviceTitle, amount: order.amount / 100, paymentId: payment._id,
+  })
+  await Payment.updateOne({ _id: payment._id }, { order: ldOrder._id })
+  await require('../models/ServiceOrder').updateOne({ _id: ldOrder._id }, {
+    professionalFee: price.feePaise / 100, gstAmount: price.gstPaise / 100,
+    govtFee: price.dutyPaise / 100, totalAmount: price.totalPaise / 100, details,
+  })
+
+  console.log(`[Payment] e-Stamp order created: ${order.id} — ${ldOrder.orderNumber} — ₹${order.amount / 100} — ${req.user.email} — ${stateName}, duty ₹${duty}`)
+
+  res.json({
+    success: true,
+    orderId: order.id,
+    orderNumber: ldOrder.orderNumber,
+    ldOrderId: ldOrder._id.toString(),
+    amount: order.amount,
+    currency: order.currency,
+    keyId: process.env.RAZORPAY_KEY_ID,
+    breakdown: { dutyPaise: price.dutyPaise, feePaise: price.feePaise, gstPaise: price.gstPaise, totalPaise: price.totalPaise, gstRate: GST_RATE },
   })
 })
 
