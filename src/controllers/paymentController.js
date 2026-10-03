@@ -26,16 +26,20 @@ exports.getConfig = asyncHandler(async (_req, res) => {
 })
 
 // POST /api/payments/create-order — protected
+// addGst: true → charge amount + 18% GST (for prices shown as "₹X + GST").
 exports.createOrder = asyncHandler(async (req, res, next) => {
   const { amount, currency = 'INR', serviceSlug, serviceTitle } = req.body
+  const addGst = req.body.addGst === true || req.body.addGst === 'true'
   if (!amount || isNaN(Number(amount))) return next(new AppError('A valid amount is required', 400))
   const amountNum = Math.round(Number(amount))
   if (amountNum <= 0 || amountNum > 1000000) return next(new AppError('Amount must be between ₹1 and ₹10,00,000', 400))
   if (!serviceSlug) return next(new AppError('serviceSlug is required', 400))
 
+  const price = addGst ? priceWithGst(amountNum) : { feePaise: amountNum * 100, gstPaise: 0, totalPaise: amountNum * 100 }
+
   const razorpay = getRazorpay()
   const order = await razorpay.orders.create({
-    amount:  amountNum * 100,
+    amount:  price.totalPaise,
     currency,
     receipt: `ld_${Date.now()}`,
     notes: {
@@ -44,6 +48,7 @@ exports.createOrder = asyncHandler(async (req, res, next) => {
       userEmail:    req.user.email,
       serviceSlug:  serviceSlug || '',
       serviceTitle: serviceTitle || '',
+      ...(addGst ? { gstIncluded: String(price.gstPaise / 100) } : {}),
     },
   })
 
@@ -53,18 +58,25 @@ exports.createOrder = asyncHandler(async (req, res, next) => {
     serviceSlug:     serviceSlug || '',
     serviceTitle:    serviceTitle || '',
     amountPaise:     order.amount,
-    amountRupees:    amountNum,
+    amountRupees:    order.amount / 100,
     currency,
     status:          'created',
+    // Saved so the invoice shows GST on its own line (see services/invoiceService.js).
+    ...(addGst ? { breakdown: { feePaise: price.feePaise, gstPaise: price.gstPaise, totalPaise: price.totalPaise } } : {}),
   })
 
   // LauncherDesk order (LD-YYYY-NNNNNN) linked to this checkout
   const ldOrder = await require('../services/orderService').createOrder({
-    userId: req.user._id, serviceSlug, serviceTitle, amount: amountNum, paymentId: payment._id,
+    userId: req.user._id, serviceSlug, serviceTitle, amount: order.amount / 100, paymentId: payment._id,
   })
   await Payment.updateOne({ _id: payment._id }, { order: ldOrder._id })
+  if (addGst) {
+    await require('../models/ServiceOrder').updateOne({ _id: ldOrder._id }, {
+      professionalFee: price.feePaise / 100, gstAmount: price.gstPaise / 100, totalAmount: price.totalPaise / 100,
+    })
+  }
 
-  console.log(`[Payment] Order created: ${order.id} — ${ldOrder.orderNumber} — ₹${amountNum} — ${req.user.email} — ${serviceSlug}`)
+  console.log(`[Payment] Order created: ${order.id} — ${ldOrder.orderNumber} — ₹${order.amount / 100}${addGst ? ' (incl. GST)' : ''} — ${req.user.email} — ${serviceSlug}`)
 
   res.json({
     success:     true,
@@ -75,6 +87,7 @@ exports.createOrder = asyncHandler(async (req, res, next) => {
     amount:      order.amount,
     currency:    order.currency,
     keyId:       process.env.RAZORPAY_KEY_ID,
+    breakdown:   { feePaise: price.feePaise, gstPaise: price.gstPaise, totalPaise: price.totalPaise, gstRate: addGst ? GST_RATE : 0 },
   })
 })
 
@@ -117,7 +130,7 @@ exports.verifyPayment = asyncHandler(async (req, res, next) => {
 // The order is attached to the account that matches the email (a basic account
 // is created if there is none yet, so the order shows up when they sign in).
 
-const { priceFor, SERVICE_TITLES, GST_RATE, TRADEMARK, trademarkPrice, ESTAMP, estampPrice } = require('../config/planPrices')
+const { priceFor, priceWithGst, SERVICE_TITLES, GST_RATE, TRADEMARK, trademarkPrice, ESTAMP, estampPrice } = require('../config/planPrices')
 const User = require('../models/User')
 
 async function findOrCreateCustomer({ name, email, phone, city }) {
@@ -200,9 +213,9 @@ exports.createCheckoutOrder = asyncHandler(async (req, res, next) => {
 // Amount charged = professional fee + 18% GST (on the fee only) + government fee
 // for the chosen applicant type and number of classes. All worked out here.
 exports.createTrademarkOrder = asyncHandler(async (req, res, next) => {
-  const { name, email, mobile, city, applicantType, classes, brandName, whatsappOptIn } = req.body
+  const { name, email, mobile, city, applicantType, classes, classNumbers, expertToChoose, brandName, whatsappOptIn } = req.body
 
-  const price = trademarkPrice({ applicantType, classes })
+  const price = trademarkPrice({ applicantType, classes, classNumbers })
   if (!price) return next(new AppError('Please choose a valid applicant type and number of classes.', 400))
 
   const razorpay = getRazorpay()
@@ -219,6 +232,7 @@ exports.createTrademarkOrder = asyncHandler(async (req, res, next) => {
     notes: {
       userId: user._id.toString(), userName: name, userEmail: email, userPhone: mobile, city,
       serviceSlug: orderSlug, serviceTitle, applicantType, classes: String(price.classes),
+      classNumbers: price.classNumbers.join(',') || 'expert to choose',
       brandName: brandName || '', gstIncluded: String(price.gstPaise / 100),
       govtFee: String(price.govtPaise / 100), govtFeeCollected: String(price.govtCollected),
     },
@@ -238,7 +252,10 @@ exports.createTrademarkOrder = asyncHandler(async (req, res, next) => {
       feePaise: price.feePaise, gstPaise: price.gstPaise, govtPaise: price.govtPaise,
       govtCollected: price.govtCollected, totalPaise: price.totalPaise,
     },
-    trademark: { applicantType, classes: price.classes, brandName: brandName || '' },
+    trademark: {
+      applicantType, classes: price.classes, brandName: brandName || '',
+      classNumbers: price.classNumbers, expertToChoose: !price.classNumbers.length && !!expertToChoose,
+    },
   })
 
   const ldOrder = await require('../services/orderService').createOrder({
@@ -250,7 +267,7 @@ exports.createTrademarkOrder = asyncHandler(async (req, res, next) => {
     govtFee: price.govtPaise / 100, totalAmount: price.totalPaise / 100,
   })
 
-  console.log(`[Payment] Trademark order created: ${order.id} — ${ldOrder.orderNumber} — ₹${order.amount / 100} — ${email} — ${price.classes} class(es), ${applicantType}, ${city}`)
+  console.log(`[Payment] Trademark order created: ${order.id} — ${ldOrder.orderNumber} — ₹${order.amount / 100} — ${email} — ${price.classes} class(es)${price.classNumbers.length ? ` [${price.classNumbers.join(', ')}]` : ''}, ${applicantType}, ${city}`)
 
   res.json({
     success: true,

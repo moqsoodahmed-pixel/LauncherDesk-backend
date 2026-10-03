@@ -41,6 +41,8 @@ const paymentSchema = new mongoose.Schema(
     // Trademark orders: what the customer chose in the checkout popup
     trademark: {
       applicantType: String, classes: Number, brandName: String,
+      classNumbers: [Number],     // the classes chosen, e.g. [9, 25, 35] (empty = expert to choose)
+      expertToChoose: Boolean,
       _id: false,
     },
     verifiedAt:    { type: Date },

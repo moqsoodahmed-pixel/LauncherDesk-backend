@@ -52,6 +52,25 @@ test('government fee scales with classes and applicant type; GST stays on the fe
   expect(created.ld.serviceTitle).toBe('Trademark Registration — 3 classes')
 })
 
+test('chosen class numbers set the class count (all 45 allowed)', async () => {
+  const r = await request(app).post(URL).send({ ...good, classes: 3, classNumbers: [35, 9, 25, 9] })
+  expect(r.status).toBe(200)
+  expect(r.body.breakdown.govtPaise).toBe(1350000)                       // 3 unique classes × ₹4,500
+  expect(created.payment.trademark.classNumbers).toEqual([9, 25, 35])
+  expect(created.order.notes.classNumbers).toBe('9,25,35')
+  const all = Array.from({ length: 45 }, (_, i) => i + 1)
+  const r45 = await request(app).post(URL).send({ ...good, classes: 45, classNumbers: all })
+  expect(r45.status).toBe(200)
+  expect(r45.body.breakdown.govtPaise).toBe(45 * 450000)
+})
+
+test('expert to choose: no class list, billed as 1 class', async () => {
+  const r = await request(app).post(URL).send({ ...good, classes: 1, classNumbers: [], expertToChoose: true })
+  expect(r.status).toBe(200)
+  expect(created.order.amount).toBe(685882)
+  expect(created.payment.trademark.expertToChoose).toBe(true)
+})
+
 test('city does not change the price', async () => {
   await request(app).post(URL).send({ ...good, city: 'Mumbai' }); const a = created.order.amount
   await request(app).post(URL).send({ ...good, city: 'Jaipur' });  const b = created.order.amount
@@ -59,7 +78,7 @@ test('city does not change the price', async () => {
 })
 
 test('rejects missing city, bad applicant type, class count, mobile, email, name', async () => {
-  for (const bad of [{ city: '' }, { applicantType: 'vip' }, { classes: 0 }, { classes: 11 }, { classes: 'x' }, { mobile: '12' }, { email: 'nope' }, { name: '' }]) {
+  for (const bad of [{ city: '' }, { applicantType: 'vip' }, { classes: 0 }, { classes: 46 }, { classes: 'x' }, { classNumbers: [0] }, { classNumbers: [46] }, { classNumbers: 'x' }, { mobile: '12' }, { email: 'nope' }, { name: '' }]) {
     const r = await request(app).post(URL).send({ ...good, ...bad })
     expect(r.status).toBe(400)
   }

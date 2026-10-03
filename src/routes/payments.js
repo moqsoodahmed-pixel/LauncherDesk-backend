@@ -27,6 +27,9 @@ router.post('/checkout/trademark/create-order', [
   body('city').trim().notEmpty().withMessage('City is required').isLength({ max: 80 }).withMessage('City must be under 80 characters').escape(),
   body('applicantType').trim().isIn(APPLICANT_TYPES).withMessage('Please choose an applicant type'),
   body('classes').isInt({ min: 1, max: TRADEMARK.maxClasses }).withMessage(`Choose between 1 and ${TRADEMARK.maxClasses} classes`).toInt(),
+  body('classNumbers').optional({ nullable: true }).isArray({ max: TRADEMARK.maxClasses }).withMessage('Invalid class list'),
+  body('classNumbers.*').isInt({ min: 1, max: 45 }).withMessage('Classes must be between 1 and 45').toInt(),
+  body('expertToChoose').optional().isBoolean(),
   body('brandName').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 120 }).withMessage('Brand name must be under 120 characters').escape(),
   body('whatsappOptIn').optional().isBoolean(),
 ], validate, createTrademarkOrder)
