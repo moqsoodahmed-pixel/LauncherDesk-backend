@@ -1,118 +1,77 @@
 /**
- * Server-side price list for checkout.
+ * E-Stamp ordering — editable settings.
  *
- * The browser only sends WHICH plan was picked (service slug + tier). The amount
- * charged is always calculated here, so nobody can change the price by editing
- * the request. Keep these numbers in sync with the plan cards on the website
- * (frontend: src/data/registrationPlans.js).
+ * FEES: LauncherDesk's own charges added on top of the stamp duty (18% GST is added on these fees, not on the duty).
+ *   These are for DISPLAY only — the amount actually charged is calculated by the backend
+ *   (launcherdesk-backend/src/config/planPrices.js → ESTAMP). Keep both in sync.
+ *   A fee of 0 is hidden from the customer.
  */
-const GST_RATE = 0.18
-
-// Professional fee in rupees, before GST.
-const PLAN_PRICES = {
-  'private-limited-company-registration': { Basic: 4999, Standard: 6499, Premium: 11499 },
-  'opc-registration':                     { Basic: 4999, Standard: 6499, Premium: 11499 },
-  'llp-registration':                     { Basic: 4999, Standard: 6499, Premium: 11499 },
+export const ESTAMP_FEES = {
+  service: 0,   // LauncherDesk service / convenience fee per e-stamp (₹)
+  courier: 150, // doorstep delivery of the original stamp paper (₹) — GST INCLUDED, the customer pays exactly this
 }
 
-const SERVICE_TITLES = {
-  'private-limited-company-registration': 'Private Limited Company Registration',
-  'opc-registration':                     'One Person Company Registration',
-  'llp-registration':                     'LLP Registration',
-}
+/** Stamp duty values the customer can pick (₹). They can also type a custom value. */
+export const DENOMINATIONS = [500, 1000]
+export const MAX_DUTY = 100000
+export const GST_RATE = 0.18
 
-/** Returns { feePaise, gstPaise, totalPaise, feeRupees } or null if the plan is unknown. */
-function priceFor(serviceSlug, tier) {
-  const fee = PLAN_PRICES[serviceSlug]?.[tier]
-  if (!fee) return null
-  const feePaise = fee * 100
-  const gstPaise = Math.round(feePaise * GST_RATE)
-  return { feeRupees: fee, feePaise, gstPaise, totalPaise: feePaise + gstPaise }
-}
-
-/* ── Trademark registration ───────────────────────────────────────────────────
- * Amount charged online = LauncherDesk professional fee + 18% GST
- *                         + the government fee (IP India, Form TM-A, per class).
- * GST is charged on the professional fee ONLY. The government fee is passed
- * through at actual and is shown on the invoice as its own line.
- * The government fee depends on who is applying and how many classes — it is
- * the same in every city, so city is collected for follow-up, not for pricing.
- * Keep professionalFee in sync with the price on the trademark page
- * (frontend: priceCard in src/data/services.js).
- */
-const TRADEMARK = {
-  slug: 'trademark-registration',
-  title: 'Trademark Registration',
-  professionalFee: 1999,
-  professionalFeePerClass: false,           // true = ₹1,999 is charged for every class
-  govtFeePerClass: { small: 4500, other: 9000 },
-  collectGovtFeeOnline: true,               // false = charge fee + GST only, govt fee paid separately
-  maxClasses: 45,                           // the full NICE classification: 1–34 goods, 35–45 services
-}
-
-const APPLICANT_TYPES = Object.keys(TRADEMARK.govtFeePerClass)
+/** Common document types (customer picks one; our team verifies the duty before purchase). */
+export const DOC_TYPES = [
+  'Rent / Lease Agreement',
+  'Affidavit',
+  'General Agreement',
+  'Indemnity Bond',
+  'Power of Attorney',
+  'Partnership Deed',
+  'Loan Agreement',
+  'MOU / Business Agreement',
+  'Employment / Service Agreement',
+  'Declaration / Undertaking',
+  'Other',
+]
 
 /**
- * Returns { classes, classNumbers, feePaise, gstPaise, govtPaise, govtCollected, totalPaise }
- * or null for invalid input.
- *
- * When classNumbers is given (and non-empty), the number of UNIQUE class
- * numbers is what's actually billed — not whatever "classes" count the
- * client sent — so the government fee always matches the classes the
- * customer picked. "classes" alone is only used as a fallback count for
- * the "let the expert choose" flow, where no class numbers are picked yet.
+ * States & UTs we serve. `script` is the words "stamp paper" in the local script,
+ * shown as a subtitle on the state page (left empty where not needed).
  */
-function trademarkPrice({ applicantType, classes, classNumbers }) {
-  const perClass = TRADEMARK.govtFeePerClass[applicantType]
-  if (!perClass) return null
-  const uniqueNums = Array.isArray(classNumbers)
-    ? [...new Set(classNumbers.map(Number))].sort((a, b) => a - b)
-    : []
-  const n = uniqueNums.length || Number(classes)
-  if (!Number.isInteger(n) || n < 1 || n > TRADEMARK.maxClasses) return null
-  const feePaise = TRADEMARK.professionalFee * (TRADEMARK.professionalFeePerClass ? n : 1) * 100
-  const gstPaise = Math.round(feePaise * GST_RATE)
-  const govtPaise = perClass * n * 100
-  const govtCollected = !!TRADEMARK.collectGovtFeeOnline
-  return {
-    classes: n, classNumbers: uniqueNums, feePaise, gstPaise, govtPaise, govtCollected,
-    totalPaise: feePaise + gstPaise + (govtCollected ? govtPaise : 0),
-  }
-}
+export const ESTAMP_STATES = [
+  { slug: 'andaman-and-nicobar', name: 'Andaman & Nicobar', script: '' },
+  { slug: 'andhra-pradesh',      name: 'Andhra Pradesh',    script: 'ఆంధ్రప్రదేశ్ స్టాంప్ పేపర్' },
+  { slug: 'arunachal-pradesh',   name: 'Arunachal Pradesh', script: '' },
+  { slug: 'assam',               name: 'Assam',             script: '' },
+  { slug: 'bihar',               name: 'Bihar',             script: 'बिहार स्टाम्प पेपर' },
+  { slug: 'chhattisgarh',        name: 'Chhattisgarh',      script: 'छत्तीसगढ़ स्टाम्प पेपर' },
+  { slug: 'delhi',               name: 'Delhi',             script: 'दिल्ली स्टाम्प पेपर' },
+  { slug: 'goa',                 name: 'Goa',               script: '' },
+  { slug: 'gujarat',             name: 'Gujarat',           script: 'ગુજરાત સ્ટેમ્પ પેપર' },
+  { slug: 'haryana',             name: 'Haryana',           script: 'हरियाणा स्टाम्प पेपर' },
+  { slug: 'himachal-pradesh',    name: 'Himachal Pradesh',  script: 'हिमाचल प्रदेश स्टाम्प पेपर' },
+  { slug: 'jammu-and-kashmir',   name: 'Jammu & Kashmir',   script: '' },
+  { slug: 'jharkhand',           name: 'Jharkhand',         script: 'झारखंड स्टाम्प पेपर' },
+  { slug: 'karnataka',           name: 'Karnataka',         script: 'ಕರ್ನಾಟಕದ ಸ್ಟಾಂಪ್ ಪೇಪರ್' },
+  { slug: 'kerala',              name: 'Kerala',            script: 'കേരള സ്റ്റാമ്പ് പേപ്പർ' },
+  { slug: 'ladakh',              name: 'Ladakh',            script: '' },
+  { slug: 'madhya-pradesh',      name: 'Madhya Pradesh',    script: 'मध्य प्रदेश स्टाम्प पेपर' },
+  { slug: 'maharashtra',         name: 'Maharashtra',       script: 'महाराष्ट्र स्टॅम्प पेपर' },
+  { slug: 'manipur',             name: 'Manipur',           script: '' },
+  { slug: 'meghalaya',           name: 'Meghalaya',         script: '' },
+  { slug: 'mizoram',             name: 'Mizoram',           script: '' },
+  { slug: 'nagaland',            name: 'Nagaland',          script: '' },
+  { slug: 'odisha',              name: 'Odisha',            script: 'ଓଡ଼ିଶା ଷ୍ଟାମ୍ପ ପେପର' },
+  { slug: 'puducherry',          name: 'Puducherry',        script: 'புதுச்சேரி ஸ்டாம்ப் பேப்பர்' },
+  { slug: 'punjab',              name: 'Punjab',            script: 'ਪੰਜਾਬ ਸਟੈਂਪ ਪੇਪਰ' },
+  { slug: 'rajasthan',           name: 'Rajasthan',         script: 'राजस्थान स्टाम्प पेपर' },
+  { slug: 'sikkim',              name: 'Sikkim',            script: '' },
+  { slug: 'tamil-nadu',          name: 'Tamil Nadu',        script: 'தமிழ்நாடு ஸ்டாம்ப் பேப்பர்' },
+  { slug: 'telangana',           name: 'Telangana',         script: 'తెలంగాణ స్టాంప్ పేపర్' },
+  { slug: 'tripura',             name: 'Tripura',           script: '' },
+  { slug: 'uttar-pradesh',       name: 'Uttar Pradesh',     script: 'उत्तर प्रदेश स्टाम्प पेपर' },
+  { slug: 'uttarakhand',         name: 'Uttarakhand',       script: 'उत्तराखंड स्टाम्प पेपर' },
+  { slug: 'west-bengal',         name: 'West Bengal',       script: 'পশ্চিমবঙ্গ স্ট্যাম্প পেপার' },
+]
 
-/* ── e-Stamp paper ───────────────────────────────────────────────────────────
- * Amount charged online = stamp duty (chosen by the customer, passed through at
- * actual, no GST) + LauncherDesk service fee + courier fee (if doorstep delivery)
- * + 18% GST on LauncherDesk's fees only.
- * ⚠ Set serviceFee / courierFee to your real prices, and keep them in sync with
- *   ESTAMP_FEES in the frontend (src/data/estamp.js), which is display-only.
- */
-const ESTAMP = {
-  serviceFee: 0,
-  courierFee: 150,          // doorstep delivery of the original — GST INCLUDED (customer pays exactly ₹150)
-  minDuty: 1,
-  maxDuty: 100000,
-  states: [
-    'andaman-and-nicobar', 'andhra-pradesh', 'arunachal-pradesh', 'assam', 'bihar', 'delhi', 'gujarat', 'haryana',
-    'himachal-pradesh', 'jammu-and-kashmir', 'jharkhand', 'karnataka', 'ladakh', 'madhya-pradesh', 'maharashtra',
-    'manipur', 'meghalaya', 'puducherry', 'punjab', 'rajasthan', 'tamil-nadu', 'telangana', 'uttar-pradesh',
-    'uttarakhand', 'west-bengal',
-  ],
-}
+export const stateBySlug = slug => ESTAMP_STATES.find(s => s.slug === slug)
 
-/** Returns { dutyPaise, feePaise, gstPaise, totalPaise } or null for invalid input. */
-function estampPrice({ stampDuty, delivery }) {
-  const duty = Number(stampDuty)
-  if (!Number.isInteger(duty) || duty < ESTAMP.minDuty || duty > ESTAMP.maxDuty) return null
-  if (!['email', 'courier'].includes(delivery)) return null
-  // Service fee: GST added on top. Courier: the ₹ amount already includes GST, split out for the invoice.
-  const servicePaise = ESTAMP.serviceFee * 100
-  const courierTotal = delivery === 'courier' ? ESTAMP.courierFee * 100 : 0
-  const courierBase = Math.round(courierTotal / (1 + GST_RATE))
-  const feePaise = servicePaise + courierBase
-  const gstPaise = Math.round(servicePaise * GST_RATE) + (courierTotal - courierBase)
-  const dutyPaise = duty * 100
-  return { dutyPaise, feePaise, gstPaise, totalPaise: dutyPaise + feePaise + gstPaise }
-}
-
-module.exports = { GST_RATE, PLAN_PRICES, SERVICE_TITLES, priceFor, TRADEMARK, APPLICANT_TYPES, trademarkPrice, ESTAMP, estampPrice }
+export const LD_PHONE = '+91 85488 54859'
+export const LD_WA = '918548854859'
