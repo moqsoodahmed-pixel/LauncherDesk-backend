@@ -47,22 +47,35 @@ const TRADEMARK = {
   professionalFeePerClass: false,           // true = ₹1,999 is charged for every class
   govtFeePerClass: { small: 4500, other: 9000 },
   collectGovtFeeOnline: true,               // false = charge fee + GST only, govt fee paid separately
-  maxClasses: 10,
+  maxClasses: 45,                           // the full NICE classification: 1–34 goods, 35–45 services
 }
 
 const APPLICANT_TYPES = Object.keys(TRADEMARK.govtFeePerClass)
 
-/** Returns { classes, feePaise, gstPaise, govtPaise, govtCollected, totalPaise } or null for invalid input. */
-function trademarkPrice({ applicantType, classes }) {
+/**
+ * Returns { classes, classNumbers, feePaise, gstPaise, govtPaise, govtCollected, totalPaise }
+ * or null for invalid input.
+ *
+ * When classNumbers is given (and non-empty), the number of UNIQUE class
+ * numbers is what's actually billed — not whatever "classes" count the
+ * client sent — so the government fee always matches the classes the
+ * customer picked. "classes" alone is only used as a fallback count for
+ * the "let the expert choose" flow, where no class numbers are picked yet.
+ */
+function trademarkPrice({ applicantType, classes, classNumbers }) {
   const perClass = TRADEMARK.govtFeePerClass[applicantType]
-  const n = Number(classes)
-  if (!perClass || !Number.isInteger(n) || n < 1 || n > TRADEMARK.maxClasses) return null
+  if (!perClass) return null
+  const uniqueNums = Array.isArray(classNumbers)
+    ? [...new Set(classNumbers.map(Number))].sort((a, b) => a - b)
+    : []
+  const n = uniqueNums.length || Number(classes)
+  if (!Number.isInteger(n) || n < 1 || n > TRADEMARK.maxClasses) return null
   const feePaise = TRADEMARK.professionalFee * (TRADEMARK.professionalFeePerClass ? n : 1) * 100
   const gstPaise = Math.round(feePaise * GST_RATE)
   const govtPaise = perClass * n * 100
   const govtCollected = !!TRADEMARK.collectGovtFeeOnline
   return {
-    classes: n, feePaise, gstPaise, govtPaise, govtCollected,
+    classes: n, classNumbers: uniqueNums, feePaise, gstPaise, govtPaise, govtCollected,
     totalPaise: feePaise + gstPaise + (govtCollected ? govtPaise : 0),
   }
 }
