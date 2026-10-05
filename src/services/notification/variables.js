@@ -16,7 +16,7 @@ const URLS = {
   dashboard: () => `${site()}/user/dashboard`,
   order:     id => `${site()}/user/services/${id}`,
   documents: id => `${site()}/user/services/${id}?tab=documents`,
-  invoices:  () => `${site()}/user/payments`,
+  invoices:  () => `${site()}/user/invoices`,
   ticket:    id => `${site()}/user/dashboard?tab=support&ticket=${id}`,
   support:   () => `${site()}/user/dashboard?tab=support`,
   feedback:  id => `${site()}/user/services/${id}?tab=feedback`,
