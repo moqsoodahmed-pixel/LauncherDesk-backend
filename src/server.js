@@ -114,6 +114,19 @@ const paymentLimiter = rateLimit({
 })
 app.use('/api/payments', paymentLimiter)
 
+/* ── Health + database guard ──────────────────────────────────────────── */
+app.get('/api/health', (_req, res) => {
+  const db = connectDB.isDbReady() ? 'connected' : 'disconnected'
+  res.status(db === 'connected' ? 200 : 503).json({ success: db === 'connected', status: 'LauncherDesk API is running', database: db, timestamp: new Date() })
+})
+
+// While MongoDB is unreachable, answer immediately with a clear JSON error (CORS headers
+// included) instead of hanging or crashing. The Razorpay webhook above is unaffected.
+app.use('/api', (req, res, next) => {
+  if (connectDB.isDbReady()) return next()
+  res.status(503).json({ success: false, message: 'Our servers are temporarily unavailable. Please try again in a minute.' })
+})
+
 /* ── Routes ───────────────────────────────────────────────────────────── */
 app.use('/api/auth', authRoutes)
 app.use('/api/contact', contactRoutes)
@@ -132,10 +145,6 @@ app.use('/api/payments', paymentRoutes)
 app.use('/api/user', require('./routes/customerOps'))   // documents, invoices, timeline, tickets
 app.use('/api/user', userRoutes)
 app.use('/api/admin/ops', require('./routes/adminOps'))  // order ops, communication history, templates, settings
-
-app.get('/api/health', (_req, res) => {
-  res.json({ success: true, status: 'LauncherDesk API is running', timestamp: new Date() })
-})
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: `Route ${req.originalUrl} not found` })

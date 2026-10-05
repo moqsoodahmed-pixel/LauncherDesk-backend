@@ -1,22 +1,34 @@
 const mongoose = require('mongoose')
 
-const connectDB = async () => {
+// Connect to MongoDB without ever killing the process. Previously a failed connection called
+// process.exit(1): the host restarted the app in a loop and every browser request failed with
+// "Failed to fetch" (the host's error page has no CORS headers). Now the API stays up, answers
+// with a clear 503 JSON error while the database is unreachable, and keeps retrying.
+let indexesEnsured = false
+mongoose.connection.on('disconnected', () => console.warn('⚠️   MongoDB disconnected — mongoose will reconnect automatically'))
+mongoose.connection.on('reconnected', () => console.log('✅  MongoDB reconnected'))
+
+const connectDB = async (attempt = 1) => {
   const uri = process.env.MONGO_URI || 'mongodb://localhost:27017/launcherdesk'
-  if (!process.env.MONGO_URI) {
+  if (!process.env.MONGO_URI && attempt === 1) {
     console.warn('⚠️   MONGO_URI not specified in .env, falling back to mongodb://localhost:27017/launcherdesk')
   }
 
   try {
-    const conn = await mongoose.connect(uri, {
-      serverSelectionTimeoutMS: 5000,
-    })
+    const conn = await mongoose.connect(uri, { serverSelectionTimeoutMS: 10000 })
     console.log(`✅  MongoDB connected: ${conn.connection.host}`)
-    await ensureIndexes()
+    if (!indexesEnsured) { indexesEnsured = true; await ensureIndexes() }
+    return conn
   } catch (err) {
-    console.error(`❌  MongoDB connection error: ${err.message}`)
-    process.exit(1)
+    const delay = Math.min(30000, 2000 * attempt)
+    console.error(`❌  MongoDB connection error (attempt ${attempt}): ${err.message} — retrying in ${delay / 1000}s`)
+    console.error('    Check MONGO_URI, the Atlas cluster status (not paused) and Atlas Network Access (allow your host\'s IP or 0.0.0.0/0).')
+    await new Promise(r => setTimeout(r, delay))
+    return connectDB(attempt + 1)
   }
 }
+
+const isDbReady = () => mongoose.connection.readyState === 1
 
 async function ensureIndexes() {
   try {
@@ -64,3 +76,4 @@ async function ensureIndexes() {
 }
 
 module.exports = connectDB
+module.exports.isDbReady = isDbReady
