@@ -31,6 +31,9 @@ const app = express()
 app.set('trust proxy', 1)
 
 /* ── CORS ─────────────────────────────────────────────────────────────── */
+// Registered FIRST so every response — preflights, errors, 404s, rate-limit and 503 replies —
+// carries the CORS headers. Disallowed origins simply get no CORS headers (no thrown error,
+// which used to turn into a 500 without headers).
 const ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:3000',
@@ -39,21 +42,31 @@ const ALLOWED_ORIGINS = [
   'https://launcherdesk.net',
   'https://www.launcherdesk.net',
   'https://launcherdesk-frontend-7wj.pages.dev',
-  process.env.CLIENT_URL,
+  ...(process.env.CLIENT_URL || '').split(',').map(s => s.trim().replace(/\/$/, '')),
+  ...(process.env.EXTRA_CORS_ORIGINS || '').split(',').map(s => s.trim().replace(/\/$/, '')),
 ].filter(Boolean)
 
-app.use(cors({
+const isAllowedOrigin = (origin) =>
+  ALLOWED_ORIGINS.includes(origin) ||
+  /^https:\/\/([a-z0-9-]+\.)*launcherdesk\.(com|net)$/i.test(origin) ||   // any launcherdesk subdomain
+  /^https:\/\/launcherdesk-[a-z0-9-]+\.pages\.dev$/i.test(origin) ||        // Cloudflare Pages previews
+  /^https:\/\/[a-z0-9-]+\.launcherdesk-frontend-7wj\.pages\.dev$/i.test(origin)
+
+const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true)
-    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true)
-    // Allow Cloudflare Pages preview deployments for this project only
-    if (/^https:\/\/launcherdesk-[a-z0-9-]+\.pages\.dev$/.test(origin)) return callback(null, true)
-    callback(new Error(`CORS: origin ${origin} not allowed`))
+    if (!origin || isAllowedOrigin(origin)) return callback(null, true)
+    console.warn(`[CORS] Blocked origin: ${origin}`)
+    callback(null, false)
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-}))
-app.options('*', cors())
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['Content-Disposition'],
+  maxAge: 86400,          // browsers cache the preflight for a day
+  optionsSuccessStatus: 204,
+}
+app.use(cors(corsOptions))
+app.options('*', cors(corsOptions))
 
 /* ── Security headers ─────────────────────────────────────────────────── */
 app.use(helmet({
