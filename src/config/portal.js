@@ -56,6 +56,12 @@ const env = {
   RATE_LIMIT_MAX: parseInt(required('RATE_LIMIT_MAX', '300'), 10),
   LOGIN_RATE_LIMIT_MAX: parseInt(required('PORTAL_LOGIN_RATE_LIMIT_MAX', '10'), 10),
 
+  // Grace period (seconds) within which a previously-rotated refresh token is
+  // treated as a harmless concurrent request rather than token theft.
+  // Covers React StrictMode double-mounts, parallel browser tabs, and the
+  // apiClient interceptor racing with the auth-context mount-refresh.
+  REFRESH_REUSE_GRACE_SECONDS: parseInt(required('REFRESH_REUSE_GRACE_SECONDS', '30'), 10),
+
   SEED: {
     superAdmin: {
       name: required('SEED_SUPER_ADMIN_NAME', 'Super Admin'),
