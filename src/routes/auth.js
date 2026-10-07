@@ -189,6 +189,16 @@ router.post('/forgot-password', asyncHandler(async (req, res, next) => {
     const { email } = req.body
     if (!email) return next(new AppError('Email address is required', 400))
 
+    // Portal accounts (portal_users) are reset by the Portal's own service, which emails a
+    // link to /reset-password (the original Portal reset page, routed in the frontend).
+    const { User: PortalUser } = require('../models/portal')
+    if (await PortalUser.exists({ email: email.toLowerCase().trim() })) {
+        await require('../services/portal/auth.service').requestPasswordReset({
+            email: email.toLowerCase().trim(), ipAddress: req.ip, userAgent: req.headers['user-agent'],
+        })
+        return res.json({ success: true, message: 'If an account exists with that email, a reset link has been sent.' })
+    }
+
     const user = await User.findOne({ email: email.toLowerCase().trim() })
 
     // Always return success even if user not found (security — don't reveal emails)

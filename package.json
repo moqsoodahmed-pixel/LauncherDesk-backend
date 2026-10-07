@@ -7,14 +7,22 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "seed:admin": "node src/scripts/seedAdmin.js",
+    "migrate:portal-data": "node src/scripts/migratePortalData.js",
+    "migrate:standardize-ids": "node src/scripts/standardize_system_ids_migration.js",
+    "clean:test-data": "node src/scripts/cleanTestData.js",
+    "seed:roles": "node src/scripts/seedRoleAccounts.js",
     "test": "node node_modules/jest/bin/jest.js --runInBand --forceExit"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1146.0",
     "axios": "^1.9.0",
     "bcryptjs": "^2.4.3",
+    "compression": "^1.8.2",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
+    "express-mongo-sanitize": "^2.2.0",
     "express-rate-limit": "^7.5.0",
     "express-session": "^1.19.0",
     "express-validator": "^7.2.1",
@@ -26,7 +34,9 @@
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "pdfkit": "^0.15.0",
-    "razorpay": "^2.9.5"
+    "razorpay": "^2.9.5",
+    "uuid": "^14.0.2",
+    "xss-clean": "^0.1.4"
   },
   "devDependencies": {
     "jest": "^29.0.0",

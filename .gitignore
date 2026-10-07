@@ -1,8 +1,66 @@
+# Dependencies
 node_modules/
+
+# Environment & Secrets (NEVER COMMIT)
 .env
 .env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 !.env.example
-logs/
+
+# Runtime, Storage & Uploads
+/uploads/
+/private_uploads/
+/storage/
+/tmp/
+/temp/
+
+# Logs
+/logs/
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test & Coverage
+coverage/
+.nyc_output/
+test_results.json
+test-results/
+
+# Verification & Scratch Scripts
+verify_*.js
+check_*.js
+audit_*.js
+inspect_*.js
+scratch/
+
+# OS & Editor
 .DS_Store
-private_uploads/
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Process IDs & Archives
+*.pid
+*.seed
+*.pid.lock
+*.zip
+*.tar.gz
+
+# SSL & Certificates
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+
+# Database dumps & backups
+*.dump
+*.sql
+*.sqlite
+mongo-dump/
+dump/

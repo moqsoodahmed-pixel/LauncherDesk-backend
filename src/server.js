@@ -3,6 +3,8 @@ const express = require('express')
 const cors = require('cors')
 const helmet = require('helmet')
 const rateLimit = require('express-rate-limit')
+const cookieParser = require('cookie-parser')
+const mongoSanitize = require('express-mongo-sanitize')
 const path = require('path')
 const connectDB = require('./config/db')
 
@@ -22,9 +24,11 @@ const salesRoutes = require('./routes/sales')
 const paymentRoutes = require('./routes/payments')
 const userRoutes = require('./routes/user')
 
-connectDB().then(() => {
+connectDB().then(async () => {
   // Notification engine background jobs (email queue / retries, document reminders, feedback)
   require('./services/scheduler').start()
+  // Portal data backfills that the standalone Portal ran on every boot (idempotent)
+  await require('./services/portal/startupMigrations.service').runPortalStartupMigrations()
 })
 
 const app = express()
@@ -80,18 +84,25 @@ app.use(helmet.referrerPolicy({ policy: 'strict-origin-when-cross-origin' }))
    mounted before express.json(). Not rate-limited (Razorpay retries on failure). */
 app.post('/api/payments/webhook', express.raw({ type: '*/*', limit: '1mb' }), require('./controllers/paymentController').webhook)
 
+/* ── Portal Razorpay webhook — also needs raw body, mounted before json parser ── */
+app.use('/api/portal/webhooks', require('./routes/portal/webhooks.routes'))
+
 /* ── Body parsing ─────────────────────────────────────────────────────── */
 app.use(express.json({ limit: '2mb' }))
 app.use(express.urlencoded({ extended: true, limit: '2mb' }))
+app.use(cookieParser())
+app.use(mongoSanitize())
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')))
 
 /* ── Rate limiting ────────────────────────────────────────────────────── */
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: process.env.NODE_ENV === 'development' ? 5000 : 200,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many requests. Please try again later.' },
+  // Portal routes keep the Portal's own limiter (RATE_LIMIT_MAX, default 300) — see below.
+  skip: (req) => req.originalUrl.startsWith('/api/portal'),
 })
 app.use('/api/', globalLimiter)
 
@@ -159,6 +170,21 @@ app.use('/api/user', require('./routes/customerOps'))   // documents, invoices, 
 app.use('/api/user', userRoutes)
 app.use('/api/admin/ops', require('./routes/adminOps'))  // order ops, communication history, templates, settings
 
+/* ── Portal routes (all under /api/portal/) ──────────────────────────── */
+// Same middleware chain the standalone Portal app applied to its API:
+// XSS sanitising → maintenance-mode gate → Portal rate limiter → routes.
+app.use('/api/portal', require('xss-clean')())
+app.use('/api/portal', require('./middleware/portal/maintenanceMode'))
+app.use('/api/portal', require('./middleware/portal/rateLimiters').generalLimiter)
+app.use('/api/portal', require('./routes/portal/index'))
+// Portal 404 + error responses keep the Portal's own shape ({ success, message, code, details })
+// that its UI reads (e.g. validation `details` in the order forms); internal errors stay generic.
+{
+  const { notFoundHandler, errorHandler: portalErrorHandler } = require('./middleware/portal/errorHandler')
+  app.use('/api/portal', notFoundHandler)
+  app.use('/api/portal', portalErrorHandler)
+}
+
 app.use((req, res) => {
   res.status(404).json({ success: false, message: `Route ${req.originalUrl} not found` })
 })
@@ -174,9 +200,10 @@ app.use((err, req, res, _next) => {
 })
 
 const PORT = process.env.PORT || 5000
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, () => {
   console.log(`🚀  LauncherDesk API running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`)
   if (!process.env.RAZORPAY_KEY_ID) console.warn('⚠️   RAZORPAY_KEY_ID not set — payments will return 503')
+  else console.log(`💳  Razorpay configured with Key ID: ${process.env.RAZORPAY_KEY_ID}`)
   if (!process.env.BREVO_API_KEY && !process.env.EMAIL_PROVIDER) console.warn('⚠️   No email provider configured — emails are printed to the console (EMAIL_PROVIDER=console)')
   if (!process.env.RAZORPAY_WEBHOOK_SECRET) console.warn('⚠️   RAZORPAY_WEBHOOK_SECRET not set — Razorpay webhooks will be rejected')
   if (!process.env.GROQ_API_KEY) console.warn('⚠️   GROQ_API_KEY not set — AI will use fallback message')

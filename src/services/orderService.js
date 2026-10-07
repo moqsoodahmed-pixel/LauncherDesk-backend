@@ -40,10 +40,10 @@ const STATUS_MESSAGES = {
   CLOSED: 'Your order has been closed.',
 }
 
+const { generateOrderCode } = require('./idGenerator.service')
+
 async function generateOrderNumber(date = new Date()) {
-  const year = date.getFullYear()
-  const seq = await Counter.next(`order-${year}`)
-  return `LD-${year}-${String(seq).padStart(6, '0')}`
+  return generateOrderCode(date)
 }
 
 async function createOrder({ userId, serviceSlug, serviceTitle, serviceCategory, amount, paymentId, triggeredBy = 'customer' }) {

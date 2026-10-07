@@ -1,0 +1,50 @@
+/**
+ * Centralized in-app notification event catalogue. Distinct from
+ * constants/communicationEvents.js (Phase 9, which drives EMAIL/WHATSAPP/SMS)
+ * even where the string values overlap - a notification is an in-app,
+ * per-user record, a communication is an external provider send; they are
+ * dispatched from the same business events but are not the same system.
+ */
+const NOTIFICATION_EVENT = Object.freeze({
+  ORDER_CREATED: 'ORDER_CREATED',
+  ORDER_PAYMENT_PENDING: 'ORDER_PAYMENT_PENDING',
+  ORDER_PAYMENT_CONFIRMED: 'ORDER_PAYMENT_CONFIRMED',
+  ORDER_PAYMENT_FAILED: 'ORDER_PAYMENT_FAILED',
+  ORDER_ASSIGNED: 'ORDER_ASSIGNED',
+  ORDER_REASSIGNED: 'ORDER_REASSIGNED',
+  ORDER_STATUS_CHANGED: 'ORDER_STATUS_CHANGED',
+  ORDER_CANCELLED: 'ORDER_CANCELLED',
+  ORDER_COMPLETED: 'ORDER_COMPLETED',
+  ORDER_CLOSED: 'ORDER_CLOSED',
+
+  KYC_SUBMITTED: 'KYC_SUBMITTED',
+  KYC_REJECTED: 'KYC_REJECTED',
+  KYC_VERIFIED: 'KYC_VERIFIED',
+  KYC_DOCUMENT_REJECTED: 'KYC_DOCUMENT_REJECTED',
+
+  PAYMENT_REFUNDED: 'PAYMENT_REFUNDED',
+
+  CLIENT_CREATED: 'CLIENT_CREATED',
+  CLIENT_UPDATED: 'CLIENT_UPDATED',
+  CLIENT_STATUS_CHANGED: 'CLIENT_STATUS_CHANGED',
+
+  ADMIN_CREATED: 'ADMIN_CREATED',
+  ADMIN_UPDATED: 'ADMIN_UPDATED',
+  ADMIN_DISABLED: 'ADMIN_DISABLED',
+  ADMIN_ENABLED: 'ADMIN_ENABLED',
+
+  PASSWORD_CHANGED: 'PASSWORD_CHANGED',
+  SECURITY_EVENT: 'SECURITY_EVENT',
+
+  DOC_REQUESTED: 'DOC_REQUESTED',
+  TASK_ASSIGNED: 'TASK_ASSIGNED',
+});
+
+const ALL_NOTIFICATION_EVENTS = Object.values(NOTIFICATION_EVENT);
+
+// Security-critical events a recipient can never suppress via preferences
+// (Phase 10 Part J) - checked by notification.service.js before honoring
+// any "in-app notifications disabled" preference.
+const MANDATORY_NOTIFICATION_EVENTS = [NOTIFICATION_EVENT.PASSWORD_CHANGED, NOTIFICATION_EVENT.SECURITY_EVENT];
+
+module.exports = { NOTIFICATION_EVENT, ALL_NOTIFICATION_EVENTS, MANDATORY_NOTIFICATION_EVENTS };

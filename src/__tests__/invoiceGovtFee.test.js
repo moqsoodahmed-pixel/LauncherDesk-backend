@@ -2,6 +2,7 @@
 // pass-through government fee.
 jest.mock('../models/Invoice', () => ({ findOne: jest.fn(async () => null), create: jest.fn(async d => d) }))
 jest.mock('../models/Counter', () => ({ next: jest.fn(async () => 7) }))
+jest.mock('../services/idGenerator.service', () => ({ generateInvoiceNumber: jest.fn(async () => 'LD-2026-1007-0001') }))
 jest.mock('../models/User', () => ({ findById: () => ({ lean: async () => ({ name: 'Asha', email: 'a@x.in', phone: '+919876543210' }) }) }))
 const { createInvoice, splitForInvoice } = require('../services/invoiceService')
 

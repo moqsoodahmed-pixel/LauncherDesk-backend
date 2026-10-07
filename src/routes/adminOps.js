@@ -252,9 +252,9 @@ router.delete('/email-templates/:templateId', wrap(async (req, res) => {
 
 router.post('/email-templates/:templateId/preview', wrap(async (req, res) => {
   const sample = {
-    customer_name: 'Priya', order_id: 'LD-2026-001245', service_name: 'Private Limited Company Registration', order_status: 'Processing',
-    payment_id: 'pay_XXXXXXXX', payment_amount: '₹4,999', total_amount: '₹4,999', invoice_number: 'LD/2026-27/000001', otp: '123456', otp_expiry_minutes: '10',
-    ticket_id: 'LD-TKT-10001', document_name: 'Address proof', rejection_reason: 'The uploaded document is unclear.', required_correction: 'Please upload a clear copy.',
+    customer_name: 'Priya', order_id: 'LD-2026-1006-0001', service_name: 'Private Limited Company Registration', order_status: 'Processing',
+    payment_id: 'pay_XXXXXXXX', payment_amount: '₹4,999', total_amount: '₹4,999', invoice_number: 'LD-2026-1006-0002', otp: '123456', otp_expiry_minutes: '10',
+    ticket_id: 'TCK-2026-1006-0001', document_name: 'Address proof', rejection_reason: 'The uploaded document is unclear.', required_correction: 'Please upload a clear copy.',
     documents_pending_html: '<ul><li>Address proof</li><li>Photograph</li></ul>', documents_submitted_html: '<ul><li>PAN</li><li>Aadhaar</li></ul>',
     ...(req.body.sampleData || {}),
   }
@@ -289,13 +289,15 @@ router.get('/tickets', wrap(async (req, res) => {
   ])
   res.json({ success: true, total, page: p, data: rows })
 }))
+const ticketQuery = tid => ({ $or: [{ ticketId: tid }, { ticketCode: tid }, { legacyTicketCode: tid }, { legacyCode: tid }] })
+
 router.get('/tickets/:ticketId', wrap(async (req, res, next) => {
-  const t = await SupportTicket.findOne({ ticketId: req.params.ticketId }).populate('customer', 'name email phone').lean()
+  const t = await SupportTicket.findOne(ticketQuery(req.params.ticketId)).populate('customer', 'name email phone').lean()
   if (!t) return next(new AppError('Ticket not found', 404))
   res.json({ success: true, data: t })
 }))
 router.post('/tickets/:ticketId/reply', wrap(async (req, res, next) => {
-  const t = await SupportTicket.findOne({ ticketId: req.params.ticketId })
+  const t = await SupportTicket.findOne(ticketQuery(req.params.ticketId))
   if (!t) return next(new AppError('Ticket not found', 404))
   const body = String(req.body.message || '').trim()
   if (!body) throw new AppError('message is required', 400)
@@ -303,11 +305,11 @@ router.post('/tickets/:ticketId/reply', wrap(async (req, res, next) => {
   t.messages.push({ from: 'support', author: req.user.name, body, internal })
   if (!internal && t.status === 'OPEN') t.status = 'IN_PROGRESS'
   await t.save()
-  if (!internal) await events.emit('SUPPORT_UPDATED', { customerId: t.customer, ticketId: t._id, orderId: t.order, triggeredBy: by(req), dedupe: `${t.ticketId}#${t.messages.length}`, extra: { ticket_message: body.slice(0, 1000) } })
+  if (!internal) await events.emit('SUPPORT_UPDATED', { customerId: t.customer, ticketId: t._id, orderId: t.order, triggeredBy: by(req), dedupe: `${t.ticketId || t.ticketCode}#${t.messages.length}`, extra: { ticket_message: body.slice(0, 1000) } })
   res.json({ success: true, data: t })
 }))
 router.patch('/tickets/:ticketId/status', wrap(async (req, res, next) => {
-  const t = await SupportTicket.findOne({ ticketId: req.params.ticketId })
+  const t = await SupportTicket.findOne(ticketQuery(req.params.ticketId))
   if (!t) return next(new AppError('Ticket not found', 404))
   const prev = t.status
   t.status = req.body.status
@@ -315,7 +317,7 @@ router.patch('/tickets/:ticketId/status', wrap(async (req, res, next) => {
   await t.save()
   if (t.status === 'RESOLVED' && prev !== 'RESOLVED') {
     const n = await EventLog.countDocuments({ customer: t.customer, eventType: 'SUPPORT_RESOLVED', 'metadata.ticketId': t.ticketId })
-    await events.emit('SUPPORT_RESOLVED', { customerId: t.customer, ticketId: t._id, orderId: t.order, triggeredBy: by(req), dedupe: `${t.ticketId}#${n + 1}`, metadata: { ticketId: t.ticketId } })
+    await events.emit('SUPPORT_RESOLVED', { customerId: t.customer, ticketId: t._id, orderId: t.order, triggeredBy: by(req), dedupe: `${t.ticketId || t.ticketCode}#${n + 1}`, metadata: { ticketId: t.ticketId || t.ticketCode } })
   }
   res.json({ success: true, data: t })
 }))

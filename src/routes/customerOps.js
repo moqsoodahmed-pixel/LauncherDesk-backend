@@ -103,14 +103,20 @@ router.get('/invoices/:id/pdf', asyncHandler(async (req, res, next) => {
 /* ── Support tickets ── */
 const customerTicket = t => ({ ...t, messages: (t.messages || []).filter(m => !m.internal) })
 
+const { generateTicketCode } = require('../services/idGenerator.service')
+
 router.post('/tickets', asyncHandler(async (req, res, next) => {
   const { subject, message, orderId } = req.body
   if (!subject?.trim() || !message?.trim()) return next(new AppError('Subject and message are required', 400))
   let order = null
   if (orderId) order = await ServiceOrder.findOne({ _id: orderId, user: req.user._id }).select('_id')
-  const seq = await Counter.next('ticket')
+  const ticketCode = await generateTicketCode()
   const t = await SupportTicket.create({
-    ticketId: `LD-TKT-${String(10000 + seq)}`, customer: req.user._id, order: order?._id, subject: subject.trim().slice(0, 200),
+    ticketId: ticketCode,
+    ticketCode,
+    customer: req.user._id,
+    order: order?._id,
+    subject: subject.trim().slice(0, 200),
     messages: [{ from: 'customer', author: req.user.name, body: message.trim().slice(0, 5000) }],
   })
   await events.emit('SUPPORT_CREATED', { customerId: req.user._id, orderId: order?._id, ticketId: t._id, triggeredBy: 'customer', dedupe: t.ticketId })
@@ -123,13 +129,21 @@ router.get('/tickets', asyncHandler(async (req, res) => {
 }))
 
 router.get('/tickets/:ticketId', asyncHandler(async (req, res, next) => {
-  const t = await SupportTicket.findOne({ ticketId: req.params.ticketId, customer: req.user._id }).lean()
+  const tid = req.params.ticketId
+  const t = await SupportTicket.findOne({
+    $or: [{ ticketId: tid }, { ticketCode: tid }, { legacyTicketCode: tid }, { legacyCode: tid }],
+    customer: req.user._id,
+  }).lean()
   if (!t) return next(new AppError('Ticket not found', 404))
   res.json({ success: true, data: customerTicket(t) })
 }))
 
 router.post('/tickets/:ticketId/messages', asyncHandler(async (req, res, next) => {
-  const t = await SupportTicket.findOne({ ticketId: req.params.ticketId, customer: req.user._id })
+  const tid = req.params.ticketId
+  const t = await SupportTicket.findOne({
+    $or: [{ ticketId: tid }, { ticketCode: tid }, { legacyTicketCode: tid }, { legacyCode: tid }],
+    customer: req.user._id,
+  })
   if (!t) return next(new AppError('Ticket not found', 404))
   if (!req.body.message?.trim()) return next(new AppError('Message is required', 400))
   t.messages.push({ from: 'customer', author: req.user.name, body: req.body.message.trim().slice(0, 5000) })

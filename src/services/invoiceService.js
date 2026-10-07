@@ -47,16 +47,17 @@ function splitForInvoice(payment) {
   return { ...splitGst(payment.amountRupees), govt: 0 }
 }
 
+const { generateInvoiceNumber } = require('./idGenerator.service')
+
 async function createInvoice(order, payment) {
   const existing = await Invoice.findOne({ payment: payment._id })
   if (existing) return { invoice: existing, created: false }
-  const fy = financialYear()
-  const seq = await Counter.next(`invoice-${fy}`)
   const customer = await User.findById(order.user).lean()
   const { taxable, gst, total, govt } = splitForInvoice(payment)
   try {
+    const invoiceNumber = await generateInvoiceNumber()
     const invoice = await Invoice.create({
-      invoiceNumber: `LD/${fy}/${String(seq).padStart(6, '0')}`,
+      invoiceNumber,
       order: order._id, payment: payment._id, customer: order.user,
       customerName: customer?.name, customerEmail: customer?.email, customerPhone: customer?.phone,
       serviceName: order.serviceTitle, taxableAmount: taxable, gstRate: GST_RATE, gstAmount: gst, govtFeeAmount: govt, totalAmount: total,

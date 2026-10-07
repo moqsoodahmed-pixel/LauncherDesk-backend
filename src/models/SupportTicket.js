@@ -2,7 +2,11 @@ const mongoose = require('mongoose')
 
 const supportTicketSchema = new mongoose.Schema(
   {
-    ticketId: { type: String, required: true, unique: true },   // LD-TKT-12345
+    ticketId: { type: String, required: true, unique: true },   // TCK-YYYY-MMDD-####
+    ticketCode: { type: String, sparse: true, index: true },
+    legacyTicketCode: { type: String, index: true },
+    legacyTicketId: { type: String, index: true },
+    legacyCode: { type: String, index: true },
     customer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     order:    { type: mongoose.Schema.Types.ObjectId, ref: 'ServiceOrder' },
     subject:  { type: String, required: true },
