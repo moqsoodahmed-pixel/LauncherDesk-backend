@@ -10,10 +10,11 @@
  */
 const ROLE_ROUTES = {
   // LauncherDesk roles (User model, `users` collection)
-  user:        { label: 'Customer',           workspace: 'launcherdesk', home: '/user/dashboard' },
+  user:        { label: 'Portal Client',      workspace: 'portal',       home: '/client/dashboard' },
   partner:     { label: 'Partner',            workspace: 'launcherdesk', home: '/partner/dashboard' },
   sales:       { label: 'Sales',              workspace: 'launcherdesk', home: '/sales/dashboard' },
-  admin:       { label: 'Legacy Admin',       workspace: 'launcherdesk', home: '/internal-admin/dashboard' },
+  admin:       { label: 'Portal Admin',       workspace: 'portal',       home: '/admin/dashboard' },
+  super_admin: { label: 'Portal Super Admin', workspace: 'portal',       home: '/super-admin/dashboard' },
 
   // Portal roles (PortalUser model, `portal_users` collection)
   CLIENT:      { label: 'Portal Client',      workspace: 'portal', home: '/client/dashboard' },

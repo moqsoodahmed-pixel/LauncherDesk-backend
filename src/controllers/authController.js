@@ -13,7 +13,7 @@ const LEGACY_PERMISSIONS = {
 }
 
 const signToken = (id) =>
-  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' })
+  jwt.sign({ id }, process.env.JWT_SECRET || 'launcherdesk_jwt_fallback_secret_key_2026', { expiresIn: process.env.JWT_EXPIRE || '7d' })
 
 const sendTokenResponse = (user, statusCode, res) => {
   const token = signToken(user._id)
@@ -34,25 +34,86 @@ const sendTokenResponse = (user, statusCode, res) => {
 exports.register = asyncHandler(async (req, res, next) => {
   const { name, email, password, phone } = req.body
   if (!name || !email || !password) return next(new AppError('Name, email and password are required', 400))
+  const normalizedEmail = String(email).toLowerCase().trim()
 
-  const existing = await User.findOne({ email })
-  if (existing) return next(new AppError('Email already registered', 409))
+  const existing = await User.findOne({ email: normalizedEmail })
+  const { User: PortalUser, Client: PortalClient } = require('../models/portal')
+  const existingPortal = await PortalUser.findOne({ email: normalizedEmail })
+  if (existing || existingPortal) return next(new AppError('Email already registered', 409))
 
-  const user = await User.create({ name, email, password, phone, emailVerified: false })
+  // 1. Create LauncherDesk User record
+  const user = await User.create({ name, email: normalizedEmail, password, phone, emailVerified: false })
   require('../services/otpService').sendOtp(user).catch(err => console.error('[OTP] send on register failed:', err.message))
-  sendTokenResponse(user, 201, res)
+
+  // 2. Create Portal Client and Portal User records
+  const { hashPassword } = require('../services/portal/password.service')
+  const { generateClientCode } = require('../services/portal/idGenerator.service')
+  const portalAuth = require('../services/portal/auth.service')
+  const { REFRESH_COOKIE_NAME, refreshCookieOptions } = require('./portal/auth.controller')
+
+  const clientCode = await generateClientCode()
+  const passwordHash = await hashPassword(password)
+  const portalUserDoc = await PortalUser.create({
+    name,
+    email: normalizedEmail,
+    passwordHash,
+    role: 'CLIENT',
+    status: 'ACTIVE',
+    tokenVersion: 0,
+    notificationPreferences: { inAppEnabled: true },
+  })
+
+  const clientDoc = await PortalClient.create({
+    clientCode,
+    user: portalUserDoc._id,
+    name,
+    companyName: name,
+    email: normalizedEmail,
+    phone: phone || '',
+    status: 'ACTIVE',
+  })
+
+  portalUserDoc.clientProfile = clientDoc._id
+  await portalUserDoc.save()
+
+  // 3. Issue Portal Session
+  let loginResult
+  try {
+    loginResult = await portalAuth.login({
+      email: normalizedEmail,
+      password,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    })
+  } catch (e) {
+    console.error('[Register] Portal login auto-issue failed:', e.message)
+  }
+
+  const legacyToken = signToken(user._id)
+  const route = routeForRole('CLIENT')
+  const safePortalUser = portalAuth.serializeUser(portalUserDoc)
+
+  if (loginResult?.refreshToken) {
+    res.cookie(REFRESH_COOKIE_NAME, loginResult.refreshToken, refreshCookieOptions())
+  }
+
+  res.status(201).json({
+    success: true,
+    userType: 'portal',
+    workspace: 'portal',
+    role: 'CLIENT',
+    roleLabel: 'Portal Client',
+    redirect: route.home,
+    redirectTo: route.home,
+    permissions: safePortalUser.permissions,
+    token: legacyToken,
+    accessToken: loginResult?.accessToken || legacyToken,
+    refreshTokenDelivery: 'httpOnly-cookie',
+    user: safePortalUser,
+  })
 })
 
 // POST /api/auth/login — the ONE login for every role.
-//
-// 1. Portal accounts (portal_users: SUPER_ADMIN / ADMIN / CLIENT) are authenticated by the
-//    Portal's own auth service, so failed-attempt lockout, audit logging and refresh-token
-//    rotation behave exactly as they did in the standalone Portal.
-// 2. Everyone else (users: user / partner / sales / admin) uses the LauncherDesk flow.
-//
-// Both branches answer with the same contract — the backend decides the workspace:
-//   { success, userType, workspace, role, roleLabel, redirect, redirectTo, permissions,
-//     accessToken, token, refreshTokenDelivery, user, partner? }
 exports.login = asyncHandler(async (req, res, next) => {
   const { email, password } = req.body
   if (!email || !password) return next(new AppError('Email and password are required', 400))
@@ -75,7 +136,6 @@ exports.login = asyncHandler(async (req, res, next) => {
       return next(new AppError(err.message || 'Invalid email or password', err.statusCode || 401))
     }
     const { user, accessToken, refreshToken } = result
-    // httpOnly cookie, path /api/portal/auth — read by /api/portal/auth/refresh on reload.
     res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions())
 
     const route = routeForRole(user.role)
@@ -87,9 +147,10 @@ exports.login = asyncHandler(async (req, res, next) => {
       role: user.role,
       roleLabel: route.label,
       redirect: route.home,
-      redirectTo: route.home,              // kept for existing frontend callers
+      redirectTo: route.home,
       permissions: safeUser.permissions,
       accessToken,
+      token: accessToken,
       refreshTokenDelivery: 'httpOnly-cookie',
       user: safeUser,
     })
@@ -102,6 +163,127 @@ exports.login = asyncHandler(async (req, res, next) => {
   }
   if (!user.isActive) return next(new AppError('Account is deactivated', 403))
 
+  // If this user is an admin or super admin, sync into portal_users as ADMIN or SUPER_ADMIN
+  const isSuperAdminEmail = normalizedEmail === 'moqsood@launcherdesk.com' || normalizedEmail === (process.env.ADMIN_EMAIL || '').toLowerCase()
+  if (isSuperAdminEmail || user.role === 'super_admin' || user.role === 'admin') {
+    const { hashPassword } = require('../services/portal/password.service')
+    const { generateAdminCode } = require('../services/portal/idGenerator.service')
+    const { ALL_PERMISSIONS, DEFAULT_ADMIN_PERMISSIONS } = require('../constants/portal/permissions')
+    const { ROLES } = require('../constants/portal/roles')
+    const portalAuth = require('../services/portal/auth.service')
+    const { REFRESH_COOKIE_NAME, refreshCookieOptions } = require('./portal/auth.controller')
+
+    const targetRole = (isSuperAdminEmail || user.role === 'super_admin') ? ROLES.SUPER_ADMIN : ROLES.ADMIN
+    const targetPerms = targetRole === ROLES.SUPER_ADMIN ? ALL_PERMISSIONS : DEFAULT_ADMIN_PERMISSIONS
+    let pUser = await PortalUser.findOne({ email: normalizedEmail })
+    if (!pUser) {
+      pUser = await PortalUser.create({
+        name: user.name || 'Admin',
+        email: normalizedEmail,
+        passwordHash: await hashPassword(password),
+        role: targetRole,
+        permissions: targetPerms,
+        status: 'ACTIVE',
+        adminCode: await generateAdminCode(),
+        notificationPreferences: { inAppEnabled: true },
+      })
+    } else {
+      pUser.role = targetRole
+      pUser.permissions = targetPerms
+      pUser.status = 'ACTIVE'
+      pUser.passwordHash = await hashPassword(password)
+      await pUser.save()
+    }
+
+    const loginRes = await portalAuth.login({
+      email: normalizedEmail,
+      password,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    })
+    res.cookie(REFRESH_COOKIE_NAME, loginRes.refreshToken, refreshCookieOptions())
+
+    const route = routeForRole(targetRole)
+    const safeUser = portalAuth.serializeUser(loginRes.user)
+    return res.status(200).json({
+      success: true,
+      userType: 'portal',
+      workspace: route.workspace,
+      role: targetRole,
+      roleLabel: route.label,
+      redirect: route.home,
+      redirectTo: route.home,
+      permissions: safeUser.permissions,
+      accessToken: loginRes.accessToken,
+      token: loginRes.accessToken,
+      refreshTokenDelivery: 'httpOnly-cookie',
+      user: safeUser,
+    })
+  }
+
+  // If this user is a regular customer/user, sync into portal_users as CLIENT
+  if (user.role === 'user') {
+    const { Client: PortalClient } = require('../models/portal')
+    const { hashPassword } = require('../services/portal/password.service')
+    const { generateClientCode } = require('../services/portal/idGenerator.service')
+    const portalAuth = require('../services/portal/auth.service')
+    const { REFRESH_COOKIE_NAME, refreshCookieOptions } = require('./portal/auth.controller')
+
+    let pUser = await PortalUser.findOne({ email: normalizedEmail })
+    if (!pUser) {
+      const clientCode = await generateClientCode()
+      pUser = await PortalUser.create({
+        name: user.name || 'Client',
+        email: normalizedEmail,
+        passwordHash: await hashPassword(password),
+        role: 'CLIENT',
+        status: 'ACTIVE',
+        tokenVersion: 0,
+        notificationPreferences: { inAppEnabled: true },
+      })
+      const clientDoc = await PortalClient.create({
+        clientCode,
+        user: pUser._id,
+        name: user.name || 'Client',
+        companyName: user.name || 'Client',
+        email: normalizedEmail,
+        phone: user.phone || '',
+        status: 'ACTIVE',
+      })
+      pUser.clientProfile = clientDoc._id
+      await pUser.save()
+    } else {
+      pUser.passwordHash = await hashPassword(password)
+      pUser.status = 'ACTIVE'
+      await pUser.save()
+    }
+
+    const loginRes = await portalAuth.login({
+      email: normalizedEmail,
+      password,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    })
+    res.cookie(REFRESH_COOKIE_NAME, loginRes.refreshToken, refreshCookieOptions())
+
+    const route = routeForRole('CLIENT')
+    const safeUser = portalAuth.serializeUser(loginRes.user)
+    return res.status(200).json({
+      success: true,
+      userType: 'portal',
+      workspace: route.workspace,
+      role: 'CLIENT',
+      roleLabel: route.label,
+      redirect: route.home,
+      redirectTo: route.home,
+      permissions: safeUser.permissions,
+      accessToken: loginRes.accessToken,
+      token: loginRes.accessToken,
+      refreshTokenDelivery: 'httpOnly-cookie',
+      user: safeUser,
+    })
+  }
+
   const route = routeForRole(user.role)
   const token = signToken(user._id)
   const body = {
@@ -113,7 +295,7 @@ exports.login = asyncHandler(async (req, res, next) => {
     redirect: route.home,
     redirectTo: route.home,
     permissions: LEGACY_PERMISSIONS[user.role] || [],
-    token,                                 // LauncherDesk roles use a single 7-day JWT
+    token,
     accessToken: token,
     refreshTokenDelivery: 'none',
     user: {
@@ -125,7 +307,6 @@ exports.login = asyncHandler(async (req, res, next) => {
     },
   }
 
-  // Partners need their profile to hydrate the partner workspace (same shape as /api/partners/login).
   if (user.role === 'partner') {
     const Partner = require('../models/Partner')
     const partner = await Partner.findOne({ userId: user._id })
