@@ -80,6 +80,12 @@ router.post('/google-token', asyncHandler(async (req, res, next) => {
 
     if (!user.isActive) return next(new AppError('Account is deactivated. Contact support.', 403))
 
+    const { isPortalRole, issuePortalSession } = require('../services/portal/portalSession.service')
+    if (isPortalRole(user.role)) {
+        const portalSession = await issuePortalSession({ user, req, res })
+        return res.json(portalSession)
+    }
+
     const authToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
         expiresIn: process.env.JWT_EXPIRE || '7d',
     })
@@ -143,6 +149,12 @@ router.post('/microsoft-token', asyncHandler(async (req, res, next) => {
     }
 
     if (!user.isActive) return next(new AppError('Account is deactivated. Contact support.', 403))
+
+    const { isPortalRole, issuePortalSession } = require('../services/portal/portalSession.service')
+    if (isPortalRole(user.role)) {
+        const portalSession = await issuePortalSession({ user, req, res })
+        return res.json(portalSession)
+    }
 
     const authToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
         expiresIn: process.env.JWT_EXPIRE || '7d',
@@ -297,7 +309,16 @@ router.post('/reset-password', asyncHandler(async (req, res, next) => {
     user.passwordResetExpires = undefined
     await user.save()
 
-    // Auto-login: return a new JWT
+    // Auto-login: return Portal session if portal role, else legacy JWT
+    const { isPortalRole, issuePortalSession } = require('../services/portal/portalSession.service')
+    if (isPortalRole(user.role)) {
+        const portalSession = await issuePortalSession({ user, rawPassword: password, req, res })
+        return res.json({
+            ...portalSession,
+            message: 'Password reset successfully. You are now logged in.',
+        })
+    }
+
     const authToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
         expiresIn: process.env.JWT_EXPIRE || '7d',
     })

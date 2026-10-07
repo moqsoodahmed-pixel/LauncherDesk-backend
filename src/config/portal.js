@@ -15,8 +15,8 @@ const env = {
 
   MONGODB_URI: required('MONGO_URI', required('MONGODB_URI', 'mongodb://127.0.0.1:27017/launcherdesk')),
 
-  JWT_ACCESS_SECRET: required('PORTAL_JWT_ACCESS_SECRET', required('JWT_ACCESS_SECRET', 'portal_dev_access_secret_change_me')),
-  JWT_REFRESH_SECRET: required('PORTAL_JWT_REFRESH_SECRET', required('JWT_REFRESH_SECRET', 'portal_dev_refresh_secret_change_me')),
+  JWT_ACCESS_SECRET: required('PORTAL_JWT_ACCESS_SECRET', required('JWT_ACCESS_SECRET', required('JWT_SECRET', 'portal_dev_access_secret_change_me'))),
+  JWT_REFRESH_SECRET: required('PORTAL_JWT_REFRESH_SECRET', required('JWT_REFRESH_SECRET', process.env.JWT_SECRET ? process.env.JWT_SECRET + '_portal_refresh' : 'portal_dev_refresh_secret_change_me')),
   JWT_ACCESS_EXPIRES: required('PORTAL_JWT_ACCESS_EXPIRES', required('JWT_ACCESS_EXPIRES', '15m')),
   JWT_REFRESH_EXPIRES: required('PORTAL_JWT_REFRESH_EXPIRES', required('JWT_REFRESH_EXPIRES', '7d')),
 

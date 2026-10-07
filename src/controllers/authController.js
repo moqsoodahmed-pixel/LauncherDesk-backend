@@ -19,7 +19,7 @@ const signToken = (id) =>
 // Roles whose session lives in the Portal (portal_users + PORTAL_JWT_* tokens).
 // They must always leave login through a portal path; a legacy JWT_SECRET token
 // is not verifiable by /api/portal/* and would 401 on every request.
-const PORTAL_DESTINED_ROLES = ['user', 'admin', 'super_admin']
+const PORTAL_DESTINED_ROLES = ['user', 'client', 'admin', 'super_admin', 'CLIENT', 'ADMIN', 'SUPER_ADMIN']
 
 /**
  * Mongoose buffers queries while the connection is still coming up (readyState 2
@@ -144,18 +144,7 @@ exports.register = asyncHandler(async (req, res, next) => {
     }
   }
 
-  return res.status(201).json({
-    success: true,
-    userType: 'launcherdesk',
-    workspace: route.workspace,
-    role: 'CLIENT',
-    roleLabel: 'Portal Client',
-    redirect: route.home,
-    redirectTo: route.home,
-    token: legacyToken,
-    accessToken: legacyToken,
-    user: { id: user._id, name: user.name, email: user.email, role: user.role || 'user' },
-  })
+  return next(new AppError('Your account was created. Please sign in to continue.', 503))
 })
 
 // POST /api/auth/login — the ONE login for every role.
@@ -167,30 +156,47 @@ exports.login = asyncHandler(async (req, res, next) => {
   const isDbReady = isDatabaseUsable()
   if (isDbReady) {
     const { User: PortalUser } = require('../models/portal')
-    if (await PortalUser.exists({ email: normalizedEmail }).catch(() => false)) {
-    const portalAuth = require('../services/portal/auth.service')
-    const { REFRESH_COOKIE_NAME, refreshCookieOptions } = require('./portal/auth.controller')
-    let result
-    try {
-      result = await portalAuth.login({
-        email: normalizedEmail,
-        password,
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'],
-      })
-    } catch (err) {
-      return next(new AppError(err.message || 'Invalid email or password', err.statusCode || 401))
-    }
-    const { user, accessToken, refreshToken } = result
-    res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions())
+    const existingPortal = await PortalUser.findOne({ email: normalizedEmail }).select('+passwordHash').catch(() => null)
+    if (existingPortal) {
+      const portalAuth = require('../services/portal/auth.service')
+      const { REFRESH_COOKIE_NAME, refreshCookieOptions } = require('./portal/auth.controller')
+      let result
+      try {
+        result = await portalAuth.login({
+          email: normalizedEmail,
+          password,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        })
+      } catch (err) {
+        // If password failed against portalUser, check if the password matches in LauncherDesk User.
+        // If so, synchronize the new password into portalUser and re-login.
+        const ldUser = await User.findOne({ email: normalizedEmail }).select('+password').catch(() => null)
+        if (ldUser && (await ldUser.comparePassword(password))) {
+          const { hashPassword } = require('../services/portal/password.service')
+          existingPortal.passwordHash = await hashPassword(password)
+          existingPortal.status = 'ACTIVE'
+          await existingPortal.save()
+          result = await portalAuth.login({
+            email: normalizedEmail,
+            password,
+            ipAddress: req.ip,
+            userAgent: req.headers['user-agent'],
+          })
+        } else {
+          return next(new AppError(err.message || 'Invalid email or password', err.statusCode || 401))
+        }
+      }
+      const { user: pUserDoc, accessToken, refreshToken } = result
+      res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions())
 
-    const route = routeForRole(user.role)
-    const safeUser = portalAuth.serializeUser(user)
+      const route = routeForRole(pUserDoc.role)
+      const safeUser = portalAuth.serializeUser(pUserDoc)
       return res.status(200).json({
         success: true,
         userType: 'portal',
         workspace: route.workspace,
-        role: user.role,
+        role: pUserDoc.role,
         roleLabel: route.label,
         redirect: route.home,
         redirectTo: route.home,
@@ -211,137 +217,25 @@ exports.login = asyncHandler(async (req, res, next) => {
   }
   if (!user.isActive) return next(new AppError('Account is deactivated', 403))
 
-  // If this user is an admin or super admin, sync into portal_users as ADMIN or SUPER_ADMIN
+  const { isPortalRole, issuePortalSession } = require('../services/portal/portalSession.service')
+  const roleUpper = String(user.role || '').toUpperCase()
   const isSuperAdminEmail = normalizedEmail === 'moqsood@launcherdesk.com' || normalizedEmail === (process.env.ADMIN_EMAIL || '').toLowerCase()
-  if (isDbReady && (isSuperAdminEmail || user.role === 'super_admin' || user.role === 'admin')) {
-    const { User: PortalUser } = require('../models/portal')
-    const { hashPassword } = require('../services/portal/password.service')
-    const { generateAdminCode } = require('../services/portal/idGenerator.service')
-    const { ALL_PERMISSIONS, DEFAULT_ADMIN_PERMISSIONS } = require('../constants/portal/permissions')
-    const { ROLES } = require('../constants/portal/roles')
-    const portalAuth = require('../services/portal/auth.service')
-    const { REFRESH_COOKIE_NAME, refreshCookieOptions } = require('./portal/auth.controller')
+  const isPortalUser = isSuperAdminEmail || isPortalRole(user.role)
 
-    const targetRole = (isSuperAdminEmail || user.role === 'super_admin') ? ROLES.SUPER_ADMIN : ROLES.ADMIN
-    const targetPerms = targetRole === ROLES.SUPER_ADMIN ? ALL_PERMISSIONS : DEFAULT_ADMIN_PERMISSIONS
-    let pUser = await PortalUser.findOne({ email: normalizedEmail })
-    if (!pUser) {
-      pUser = await PortalUser.create({
-        name: user.name || 'Admin',
-        email: normalizedEmail,
-        passwordHash: await hashPassword(password),
-        role: targetRole,
-        permissions: targetPerms,
-        status: 'ACTIVE',
-        adminCode: await generateAdminCode(),
-        notificationPreferences: { inAppEnabled: true },
-      })
-    } else {
-      pUser.role = targetRole
-      pUser.permissions = targetPerms
-      pUser.status = 'ACTIVE'
-      pUser.passwordHash = await hashPassword(password)
-      await pUser.save()
-    }
-
-    const loginRes = await portalAuth.login({
-      email: normalizedEmail,
-      password,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
+  if (isDbReady && isPortalUser) {
+    const session = await issuePortalSession({
+      user,
+      rawPassword: password,
+      req,
+      res,
+      targetRoleOverride: (isSuperAdminEmail || roleUpper === 'SUPER_ADMIN') ? 'SUPER_ADMIN' : (roleUpper === 'ADMIN' ? 'ADMIN' : 'CLIENT')
     })
-    res.cookie(REFRESH_COOKIE_NAME, loginRes.refreshToken, refreshCookieOptions())
-
-    const route = routeForRole(targetRole)
-    const safeUser = portalAuth.serializeUser(loginRes.user)
-    return res.status(200).json({
-      success: true,
-      userType: 'portal',
-      workspace: route.workspace,
-      role: targetRole,
-      roleLabel: route.label,
-      redirect: route.home,
-      redirectTo: route.home,
-      permissions: safeUser.permissions,
-      accessToken: loginRes.accessToken,
-      token: loginRes.accessToken,
-      refreshToken: loginRes.refreshToken,
-      refreshTokenDelivery: 'httpOnly-cookie',
-      user: safeUser,
-    })
-  }
-
-  // If this user is a regular customer/user, sync into portal_users as CLIENT
-  if (isDbReady && user.role === 'user') {
-    const { User: PortalUser, Client: PortalClient } = require('../models/portal')
-    const { hashPassword } = require('../services/portal/password.service')
-    const { generateClientCode } = require('../services/portal/idGenerator.service')
-    const portalAuth = require('../services/portal/auth.service')
-    const { REFRESH_COOKIE_NAME, refreshCookieOptions } = require('./portal/auth.controller')
-
-    let pUser = await PortalUser.findOne({ email: normalizedEmail })
-    if (!pUser) {
-      const clientCode = await generateClientCode()
-      pUser = await PortalUser.create({
-        name: user.name || 'Client',
-        email: normalizedEmail,
-        passwordHash: await hashPassword(password),
-        role: 'CLIENT',
-        status: 'ACTIVE',
-        tokenVersion: 0,
-        notificationPreferences: { inAppEnabled: true },
-      })
-      const clientDoc = await PortalClient.create({
-        clientCode,
-        user: pUser._id,
-        name: user.name || 'Client',
-        companyName: user.name || 'Client',
-        email: normalizedEmail,
-        phone: user.phone || '',
-        status: 'ACTIVE',
-      })
-      pUser.clientProfile = clientDoc._id
-      await pUser.save()
-    } else {
-      pUser.passwordHash = await hashPassword(password)
-      pUser.status = 'ACTIVE'
-      await pUser.save()
-    }
-
-    const loginRes = await portalAuth.login({
-      email: normalizedEmail,
-      password,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-    })
-    res.cookie(REFRESH_COOKIE_NAME, loginRes.refreshToken, refreshCookieOptions())
-
-    const route = routeForRole('CLIENT')
-    const safeUser = portalAuth.serializeUser(loginRes.user)
-    return res.status(200).json({
-      success: true,
-      userType: 'portal',
-      workspace: route.workspace,
-      role: 'CLIENT',
-      roleLabel: route.label,
-      redirect: route.home,
-      redirectTo: route.home,
-      permissions: safeUser.permissions,
-      accessToken: loginRes.accessToken,
-      token: loginRes.accessToken,
-      refreshToken: loginRes.refreshToken,
-      refreshTokenDelivery: 'httpOnly-cookie',
-      user: safeUser,
-    })
+    return res.status(200).json(session)
   }
 
   // Reaching here with a portal-destined role means the portal sync above could not
-  // run. Continuing would answer 200 with userType 'launcherdesk' and a legacy
-  // JWT_SECRET token that the frontend stores as portal_access_token: every
-  // /api/portal/* call then 401s on a signature mismatch, and because this branch
-  // issues no refresh token the recovery refresh 401s too, trapping the user in a
-  // redirect loop back to /user/login. Fail loudly instead of issuing a dead session.
-  if (isSuperAdminEmail || PORTAL_DESTINED_ROLES.includes(user.role)) {
+  // run. Fail loudly instead of issuing a dead session.
+  if (isPortalUser) {
     return next(new AppError('Sign-in is temporarily unavailable. Please try again in a moment.', 503))
   }
 

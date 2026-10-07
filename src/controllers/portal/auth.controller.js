@@ -20,9 +20,9 @@ function refreshCookieOptions() {
   return {
     httpOnly: true, // not readable from JavaScript
     secure: env.isProduction,
-    // PORTAL_COOKIE_SAMESITE lets a deployment whose frontend and API live on different
-    // sites use 'none'. Default is unchanged from the original Portal.
-    sameSite: process.env.PORTAL_COOKIE_SAMESITE || (env.isProduction ? 'strict' : 'lax'),
+    // In production with HTTPS, default to 'none' so cross-site deployments
+    // (e.g. Cloudflare Pages frontend + Railway API) can send the cookie.
+    sameSite: process.env.PORTAL_COOKIE_SAMESITE || (env.isProduction ? 'none' : 'lax'),
     path: REFRESH_COOKIE_PATH, // available to all API endpoints
     maxAge: refreshCookieMaxAgeMs(),
   };
