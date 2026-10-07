@@ -57,7 +57,14 @@ async function login(req, res, next) {
 
 async function refresh(req, res, next) {
   try {
-    const rawToken = req.cookies?.[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
+    // The body token is the one THIS client currently holds — the login/refresh
+    // response handed it over moments ago. The cookie can legitimately be stale:
+    // when the frontend and API are on different sites, SameSite keeps the browser
+    // from replacing it, so an older value lingers. Rotating that stale cookie
+    // fails and 401s a perfectly valid session, which the client then treats as a
+    // logout. Trust what the client presented; fall back to the cookie for clients
+    // that only have the cookie.
+    const rawToken = req.body?.refreshToken || req.cookies?.[REFRESH_COOKIE_NAME];
     if (!rawToken) {
       return sendError(res, { statusCode: 401, message: 'No refresh token provided.', code: 'UNAUTHENTICATED' });
     }
@@ -80,7 +87,9 @@ async function refresh(req, res, next) {
 // already expired can still log out and have the session revoked.
 async function logout(req, res, next) {
   try {
-    const rawToken = req.cookies?.[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
+    // Same precedence as refresh(): revoke the session the client actually holds,
+    // not whatever older token a stale cookie may still carry.
+    const rawToken = req.body?.refreshToken || req.cookies?.[REFRESH_COOKIE_NAME];
     await authService.logout(rawToken, requestMeta(req));
     clearRefreshCookie(res);
     return sendSuccess(res, { message: 'Logged out successfully.' });
