@@ -16,6 +16,20 @@ const LEGACY_PERMISSIONS = {
 const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET || 'launcherdesk_jwt_fallback_secret_key_2026', { expiresIn: process.env.JWT_EXPIRE || '7d' })
 
+// Roles whose session lives in the Portal (portal_users + PORTAL_JWT_* tokens).
+// They must always leave login through a portal path; a legacy JWT_SECRET token
+// is not verifiable by /api/portal/* and would 401 on every request.
+const PORTAL_DESTINED_ROLES = ['user', 'admin', 'super_admin']
+
+/**
+ * Mongoose buffers queries while the connection is still coming up (readyState 2
+ * = connecting), so a login that lands in that window completes normally. Testing
+ * for readyState === 1 alone reported "no database" during every reconnect and
+ * cold start, which silently skipped the portal sync below and handed the client
+ * a legacy 7-day token as its portal access token.
+ */
+const isDatabaseUsable = () => [1, 2].includes(mongoose.connection.readyState)
+
 const sendTokenResponse = (user, statusCode, res) => {
   const token = signToken(user._id)
   res.status(statusCode).json({
@@ -38,7 +52,7 @@ exports.register = asyncHandler(async (req, res, next) => {
   const normalizedEmail = String(email).toLowerCase().trim()
 
   const existing = await User.findOne({ email: normalizedEmail })
-  const isDbReady = mongoose.connection.readyState === 1
+  const isDbReady = isDatabaseUsable()
   let existingPortal = false
   if (isDbReady) {
     const { User: PortalUser } = require('../models/portal')
@@ -99,11 +113,16 @@ exports.register = asyncHandler(async (req, res, next) => {
         console.error('[Register] Portal login auto-issue failed:', e.message)
       }
 
+      // Without portal tokens this cannot be answered as a portal session: the
+      // legacy token would be stored as portal_access_token and 401 against every
+      // /api/portal/* route. The account exists, so send them to sign in normally.
+      if (!loginResult?.accessToken || !loginResult?.refreshToken) {
+        return next(new AppError('Your account was created. Please sign in to continue.', 503))
+      }
+
       const safePortalUser = portalAuth.serializeUser(portalUserDoc)
 
-      if (loginResult?.refreshToken) {
-        res.cookie(REFRESH_COOKIE_NAME, loginResult.refreshToken, refreshCookieOptions())
-      }
+      res.cookie(REFRESH_COOKIE_NAME, loginResult.refreshToken, refreshCookieOptions())
 
       return res.status(201).json({
         success: true,
@@ -115,8 +134,8 @@ exports.register = asyncHandler(async (req, res, next) => {
         redirectTo: route.home,
         permissions: safePortalUser.permissions,
         token: legacyToken,
-        accessToken: loginResult?.accessToken || legacyToken,
-        refreshToken: loginResult?.refreshToken,
+        accessToken: loginResult.accessToken,
+        refreshToken: loginResult.refreshToken,
         refreshTokenDelivery: 'httpOnly-cookie',
         user: safePortalUser,
       })
@@ -145,7 +164,7 @@ exports.login = asyncHandler(async (req, res, next) => {
   if (!email || !password) return next(new AppError('Email and password are required', 400))
   const normalizedEmail = String(email).toLowerCase().trim()
 
-  const isDbReady = mongoose.connection.readyState === 1
+  const isDbReady = isDatabaseUsable()
   if (isDbReady) {
     const { User: PortalUser } = require('../models/portal')
     if (await PortalUser.exists({ email: normalizedEmail }).catch(() => false)) {
@@ -314,6 +333,16 @@ exports.login = asyncHandler(async (req, res, next) => {
       refreshTokenDelivery: 'httpOnly-cookie',
       user: safeUser,
     })
+  }
+
+  // Reaching here with a portal-destined role means the portal sync above could not
+  // run. Continuing would answer 200 with userType 'launcherdesk' and a legacy
+  // JWT_SECRET token that the frontend stores as portal_access_token: every
+  // /api/portal/* call then 401s on a signature mismatch, and because this branch
+  // issues no refresh token the recovery refresh 401s too, trapping the user in a
+  // redirect loop back to /user/login. Fail loudly instead of issuing a dead session.
+  if (isSuperAdminEmail || PORTAL_DESTINED_ROLES.includes(user.role)) {
+    return next(new AppError('Sign-in is temporarily unavailable. Please try again in a moment.', 503))
   }
 
   const route = routeForRole(user.role)
