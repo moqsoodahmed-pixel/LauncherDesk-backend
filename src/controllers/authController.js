@@ -195,6 +195,7 @@ exports.login = asyncHandler(async (req, res, next) => {
   // If this user is an admin or super admin, sync into portal_users as ADMIN or SUPER_ADMIN
   const isSuperAdminEmail = normalizedEmail === 'moqsood@launcherdesk.com' || normalizedEmail === (process.env.ADMIN_EMAIL || '').toLowerCase()
   if (isDbReady && (isSuperAdminEmail || user.role === 'super_admin' || user.role === 'admin')) {
+    const { User: PortalUser } = require('../models/portal')
     const { hashPassword } = require('../services/portal/password.service')
     const { generateAdminCode } = require('../services/portal/idGenerator.service')
     const { ALL_PERMISSIONS, DEFAULT_ADMIN_PERMISSIONS } = require('../constants/portal/permissions')
@@ -253,7 +254,7 @@ exports.login = asyncHandler(async (req, res, next) => {
 
   // If this user is a regular customer/user, sync into portal_users as CLIENT
   if (isDbReady && user.role === 'user') {
-    const { Client: PortalClient } = require('../models/portal')
+    const { User: PortalUser, Client: PortalClient } = require('../models/portal')
     const { hashPassword } = require('../services/portal/password.service')
     const { generateClientCode } = require('../services/portal/idGenerator.service')
     const portalAuth = require('../services/portal/auth.service')
