@@ -6,7 +6,7 @@ const { validatePasswordPolicy } = require('../../services/portal/settings.servi
 const AppError = require('../../utils/portal/AppError');
 
 const REFRESH_COOKIE_NAME = 'portal_refresh_token';
-const REFRESH_COOKIE_PATH = '/api/portal/auth';
+const REFRESH_COOKIE_PATH = '/';
 
 // Matches the refresh token lifetime (JWT_REFRESH_EXPIRES, "<n>d" form).
 function refreshCookieMaxAgeMs() {
@@ -23,7 +23,7 @@ function refreshCookieOptions() {
     // PORTAL_COOKIE_SAMESITE lets a deployment whose frontend and API live on different
     // sites use 'none'. Default is unchanged from the original Portal.
     sameSite: process.env.PORTAL_COOKIE_SAMESITE || (env.isProduction ? 'strict' : 'lax'),
-    path: REFRESH_COOKIE_PATH, // only ever sent to the auth endpoints
+    path: REFRESH_COOKIE_PATH, // available to all API endpoints
     maxAge: refreshCookieMaxAgeMs(),
   };
 }
@@ -48,7 +48,7 @@ async function login(req, res, next) {
 
     return sendSuccess(res, {
       message: 'Login successful.',
-      data: { user: authService.serializeUser(user), accessToken },
+      data: { user: authService.serializeUser(user), accessToken, refreshToken },
     });
   } catch (err) {
     next(err);
@@ -57,14 +57,14 @@ async function login(req, res, next) {
 
 async function refresh(req, res, next) {
   try {
-    const rawToken = req.cookies?.[REFRESH_COOKIE_NAME];
+    const rawToken = req.cookies?.[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
     if (!rawToken) {
       return sendError(res, { statusCode: 401, message: 'No refresh token provided.', code: 'UNAUTHENTICATED' });
     }
 
     const { accessToken, refreshToken } = await authService.refreshSession(rawToken, requestMeta(req));
     res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions());
-    return sendSuccess(res, { message: 'Token refreshed.', data: { accessToken } });
+    return sendSuccess(res, { message: 'Token refreshed.', data: { accessToken, refreshToken } });
   } catch (err) {
     if (err instanceof RefreshError) {
       // A CONCURRENT request lost a benign race: another request already
@@ -76,11 +76,12 @@ async function refresh(req, res, next) {
   }
 }
 
-// Works from the refresh cookie alone, so a user whose access token has
+// Works from the refresh cookie or body token, so a user whose access token has
 // already expired can still log out and have the session revoked.
 async function logout(req, res, next) {
   try {
-    await authService.logout(req.cookies?.[REFRESH_COOKIE_NAME], requestMeta(req));
+    const rawToken = req.cookies?.[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
+    await authService.logout(rawToken, requestMeta(req));
     clearRefreshCookie(res);
     return sendSuccess(res, { message: 'Logged out successfully.' });
   } catch (err) {

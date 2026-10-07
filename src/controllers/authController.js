@@ -1,3 +1,4 @@
+const mongoose    = require('mongoose')
 const jwt          = require('jsonwebtoken')
 const User         = require('../models/User')
 const { AppError, asyncHandler } = require('../middleware/errorHandler')
@@ -37,79 +38,104 @@ exports.register = asyncHandler(async (req, res, next) => {
   const normalizedEmail = String(email).toLowerCase().trim()
 
   const existing = await User.findOne({ email: normalizedEmail })
-  const { User: PortalUser, Client: PortalClient } = require('../models/portal')
-  const existingPortal = await PortalUser.findOne({ email: normalizedEmail })
+  const isDbReady = mongoose.connection.readyState === 1
+  let existingPortal = false
+  if (isDbReady) {
+    const { User: PortalUser } = require('../models/portal')
+    existingPortal = await PortalUser.findOne({ email: normalizedEmail }).catch(() => null)
+  }
   if (existing || existingPortal) return next(new AppError('Email already registered', 409))
 
   // 1. Create LauncherDesk User record
   const user = await User.create({ name, email: normalizedEmail, password, phone, emailVerified: false })
   require('../services/otpService').sendOtp(user).catch(err => console.error('[OTP] send on register failed:', err.message))
 
-  // 2. Create Portal Client and Portal User records
-  const { hashPassword } = require('../services/portal/password.service')
-  const { generateClientCode } = require('../services/portal/idGenerator.service')
-  const portalAuth = require('../services/portal/auth.service')
-  const { REFRESH_COOKIE_NAME, refreshCookieOptions } = require('./portal/auth.controller')
-
-  const clientCode = await generateClientCode()
-  const passwordHash = await hashPassword(password)
-  const portalUserDoc = await PortalUser.create({
-    name,
-    email: normalizedEmail,
-    passwordHash,
-    role: 'CLIENT',
-    status: 'ACTIVE',
-    tokenVersion: 0,
-    notificationPreferences: { inAppEnabled: true },
-  })
-
-  const clientDoc = await PortalClient.create({
-    clientCode,
-    user: portalUserDoc._id,
-    name,
-    companyName: name,
-    email: normalizedEmail,
-    phone: phone || '',
-    status: 'ACTIVE',
-  })
-
-  portalUserDoc.clientProfile = clientDoc._id
-  await portalUserDoc.save()
-
-  // 3. Issue Portal Session
-  let loginResult
-  try {
-    loginResult = await portalAuth.login({
-      email: normalizedEmail,
-      password,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-    })
-  } catch (e) {
-    console.error('[Register] Portal login auto-issue failed:', e.message)
-  }
-
   const legacyToken = signToken(user._id)
   const route = routeForRole('CLIENT')
-  const safePortalUser = portalAuth.serializeUser(portalUserDoc)
 
-  if (loginResult?.refreshToken) {
-    res.cookie(REFRESH_COOKIE_NAME, loginResult.refreshToken, refreshCookieOptions())
+  // 2. Create Portal Client and Portal User records if DB is live
+  if (isDbReady) {
+    try {
+      const { User: PortalUser, Client: PortalClient } = require('../models/portal')
+      const { hashPassword } = require('../services/portal/password.service')
+      const { generateClientCode } = require('../services/portal/idGenerator.service')
+      const portalAuth = require('../services/portal/auth.service')
+      const { REFRESH_COOKIE_NAME, refreshCookieOptions } = require('./portal/auth.controller')
+
+      const clientCode = await generateClientCode()
+      const passwordHash = await hashPassword(password)
+      const portalUserDoc = await PortalUser.create({
+        name,
+        email: normalizedEmail,
+        passwordHash,
+        role: 'CLIENT',
+        status: 'ACTIVE',
+        tokenVersion: 0,
+        notificationPreferences: { inAppEnabled: true },
+      })
+
+      const clientDoc = await PortalClient.create({
+        clientCode,
+        user: portalUserDoc._id,
+        name,
+        companyName: name,
+        email: normalizedEmail,
+        phone: phone || '',
+        status: 'ACTIVE',
+      })
+
+      portalUserDoc.clientProfile = clientDoc._id
+      await portalUserDoc.save()
+
+      let loginResult
+      try {
+        loginResult = await portalAuth.login({
+          email: normalizedEmail,
+          password,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        })
+      } catch (e) {
+        console.error('[Register] Portal login auto-issue failed:', e.message)
+      }
+
+      const safePortalUser = portalAuth.serializeUser(portalUserDoc)
+
+      if (loginResult?.refreshToken) {
+        res.cookie(REFRESH_COOKIE_NAME, loginResult.refreshToken, refreshCookieOptions())
+      }
+
+      return res.status(201).json({
+        success: true,
+        userType: 'portal',
+        workspace: 'portal',
+        role: 'CLIENT',
+        roleLabel: 'Portal Client',
+        redirect: route.home,
+        redirectTo: route.home,
+        permissions: safePortalUser.permissions,
+        token: legacyToken,
+        accessToken: loginResult?.accessToken || legacyToken,
+        refreshToken: loginResult?.refreshToken,
+        refreshTokenDelivery: 'httpOnly-cookie',
+        user: safePortalUser,
+      })
+    } catch (err) {
+      console.error('[Register] Portal sync error:', err.message)
+    }
   }
 
-  res.status(201).json({
+  return res.status(201).json({
     success: true,
-    userType: 'portal',
-    workspace: 'portal',
+    userType: 'launcherdesk',
+    workspace: route.workspace,
     role: 'CLIENT',
     roleLabel: 'Portal Client',
     redirect: route.home,
     redirectTo: route.home,
-    permissions: safePortalUser.permissions,
     token: legacyToken,
-    accessToken: loginResult?.accessToken || legacyToken,
-    refreshTokenDelivery: 'httpOnly-cookie',
-    user: safePortalUser,
+    accessToken: legacyToken,
+    user: { id: user._id, name: user.name, email: user.email, role: user.role || 'user' },
   })
 })
 
@@ -119,9 +145,10 @@ exports.login = asyncHandler(async (req, res, next) => {
   if (!email || !password) return next(new AppError('Email and password are required', 400))
   const normalizedEmail = String(email).toLowerCase().trim()
 
-  // ── Portal account ─────────────────────────────────────────────────────────
-  const { User: PortalUser } = require('../models/portal')
-  if (await PortalUser.exists({ email: normalizedEmail })) {
+  const isDbReady = mongoose.connection.readyState === 1
+  if (isDbReady) {
+    const { User: PortalUser } = require('../models/portal')
+    if (await PortalUser.exists({ email: normalizedEmail }).catch(() => false)) {
     const portalAuth = require('../services/portal/auth.service')
     const { REFRESH_COOKIE_NAME, refreshCookieOptions } = require('./portal/auth.controller')
     let result
@@ -140,20 +167,22 @@ exports.login = asyncHandler(async (req, res, next) => {
 
     const route = routeForRole(user.role)
     const safeUser = portalAuth.serializeUser(user)
-    return res.status(200).json({
-      success: true,
-      userType: 'portal',
-      workspace: route.workspace,
-      role: user.role,
-      roleLabel: route.label,
-      redirect: route.home,
-      redirectTo: route.home,
-      permissions: safeUser.permissions,
-      accessToken,
-      token: accessToken,
-      refreshTokenDelivery: 'httpOnly-cookie',
-      user: safeUser,
-    })
+      return res.status(200).json({
+        success: true,
+        userType: 'portal',
+        workspace: route.workspace,
+        role: user.role,
+        roleLabel: route.label,
+        redirect: route.home,
+        redirectTo: route.home,
+        permissions: safeUser.permissions,
+        accessToken,
+        token: accessToken,
+        refreshToken,
+        refreshTokenDelivery: 'httpOnly-cookie',
+        user: safeUser,
+      })
+    }
   }
 
   // ── LauncherDesk account ───────────────────────────────────────────────────
@@ -165,7 +194,7 @@ exports.login = asyncHandler(async (req, res, next) => {
 
   // If this user is an admin or super admin, sync into portal_users as ADMIN or SUPER_ADMIN
   const isSuperAdminEmail = normalizedEmail === 'moqsood@launcherdesk.com' || normalizedEmail === (process.env.ADMIN_EMAIL || '').toLowerCase()
-  if (isSuperAdminEmail || user.role === 'super_admin' || user.role === 'admin') {
+  if (isDbReady && (isSuperAdminEmail || user.role === 'super_admin' || user.role === 'admin')) {
     const { hashPassword } = require('../services/portal/password.service')
     const { generateAdminCode } = require('../services/portal/idGenerator.service')
     const { ALL_PERMISSIONS, DEFAULT_ADMIN_PERMISSIONS } = require('../constants/portal/permissions')
@@ -216,13 +245,14 @@ exports.login = asyncHandler(async (req, res, next) => {
       permissions: safeUser.permissions,
       accessToken: loginRes.accessToken,
       token: loginRes.accessToken,
+      refreshToken: loginRes.refreshToken,
       refreshTokenDelivery: 'httpOnly-cookie',
       user: safeUser,
     })
   }
 
   // If this user is a regular customer/user, sync into portal_users as CLIENT
-  if (user.role === 'user') {
+  if (isDbReady && user.role === 'user') {
     const { Client: PortalClient } = require('../models/portal')
     const { hashPassword } = require('../services/portal/password.service')
     const { generateClientCode } = require('../services/portal/idGenerator.service')
@@ -279,6 +309,7 @@ exports.login = asyncHandler(async (req, res, next) => {
       permissions: safeUser.permissions,
       accessToken: loginRes.accessToken,
       token: loginRes.accessToken,
+      refreshToken: loginRes.refreshToken,
       refreshTokenDelivery: 'httpOnly-cookie',
       user: safeUser,
     })
