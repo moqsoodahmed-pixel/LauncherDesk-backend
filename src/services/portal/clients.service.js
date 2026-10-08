@@ -37,8 +37,14 @@ function serializeClient(client) {
     panNumber: client.panNumber ?? null,
     notes: client.notes ?? null,
     status: client.status,
+    // client.assignedAdmin._id is NOT a reliable "is this populated" test: BSON's
+    // ObjectId class exposes a self-referential _id getter (returns itself), so an
+    // UNPOPULATED raw id also has a truthy ._id - that always took this branch and
+    // produced { id: <raw ObjectId>, name: undefined, adminCode: null } instead of
+    // falling through to return the raw id. Checking .name (always set on a real
+    // PortalUser, never present on a bare ObjectId) is the reliable discriminator.
     assignedAdmin: client.assignedAdmin
-      ? (client.assignedAdmin._id
+      ? (client.assignedAdmin.name !== undefined
           ? { id: client.assignedAdmin._id, name: client.assignedAdmin.name, adminCode: client.assignedAdmin.adminCode ?? null }
           : client.assignedAdmin)
       : null,
@@ -133,7 +139,15 @@ async function listClients(scopeFilter, { page = 1, limit = 20, sortBy = 'create
 
 async function getClientById(client) {
   // `client` is already the scope-checked document, loaded by the
-  // loadScoped() IDOR-safe middleware in clients.routes.js.
+  // loadScoped() IDOR-safe middleware in clients.routes.js. loadScoped is
+  // generic (shared with Orders etc.) and never populates - without this,
+  // assignedAdmin stays a bare ObjectId here, so serializeClient's rich
+  // {id, name, adminCode} branch never fires and the client detail page
+  // (unlike the list page, which already populates) shows a raw Mongo id
+  // instead of the admin's name.
+  if (client.assignedAdmin) {
+    await client.populate('assignedAdmin', 'name adminCode');
+  }
   const result = serializeClient(client);
   if (client.user) {
     const account = await User.findById(client.user).select('email status lastLogin');

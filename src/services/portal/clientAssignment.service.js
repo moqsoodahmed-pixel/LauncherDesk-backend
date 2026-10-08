@@ -73,6 +73,9 @@ async function assignClient({ clientId, adminId, actor, reason = null, meta = {}
     ...meta,
   });
 
+  // So the assign/reassign response itself carries the admin's name immediately,
+  // not just a later re-fetch of the client.
+  await client.populate('assignedAdmin', 'name adminCode');
   return client;
 }
 
@@ -110,16 +113,33 @@ async function unassignClient({ clientId, actor, reason = null, meta = {} }) {
   return client;
 }
 
+function serializeHistoryEntry(entry) {
+  const nameOf = (admin) => (admin && admin.name ? `${admin.name}${admin.adminCode ? ` (${admin.adminCode})` : ''}` : null);
+  return {
+    _id: entry._id,
+    action: entry.action,
+    previousAdmin: nameOf(entry.previousAdmin),
+    newAdmin: nameOf(entry.newAdmin),
+    reason: entry.reason ?? null,
+    createdAt: entry.createdAt,
+  };
+}
+
 async function getAssignmentHistory(clientId, { page = 1, limit = 20 } = {}) {
   const filter = { client: clientId };
   const [items, total] = await Promise.all([
     ClientAssignmentHistory.find(filter)
+      .populate('previousAdmin', 'name adminCode')
+      .populate('newAdmin', 'name adminCode')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit),
     ClientAssignmentHistory.countDocuments(filter),
   ]);
-  return { items, meta: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
+  return {
+    items: items.map(serializeHistoryEntry),
+    meta: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+  };
 }
 
 module.exports = { assignClient, unassignClient, getAssignmentHistory, assertEligibleAdmin };

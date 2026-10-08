@@ -37,6 +37,12 @@ audit_*.js
 inspect_*.js
 scratch/
 
+# Audit / report PDFs & other local-only test artifacts
+*.pdf
+Reports/
+test_*.pdf
+*-Audit-Report.pdf
+
 # OS & Editor
 .DS_Store
 Thumbs.db
