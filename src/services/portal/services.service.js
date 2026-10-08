@@ -192,7 +192,10 @@ async function createService(payload, actor, meta = {}) {
     gstPercentage: payload.gstPercentage ?? 18,
     status: payload.status || SERVICE_STATUS.ACTIVE,
     sortOrder: payload.sortOrder ?? 0,
-    isPublic: payload.isPublic ?? false,
+    // Defaults to visible: a service an admin just created and activated is, by
+    // definition, meant for clients to see. An admin can still uncheck it on the
+    // create form (or later in Edit) to stage a service before publishing it.
+    isPublic: payload.isPublic ?? true,
     requiresKyc: payload.requiresKyc ?? false,
     requiresClientDetails: payload.requiresClientDetails ?? true,
     formSchema: payload.formSchema || { fields: [] },

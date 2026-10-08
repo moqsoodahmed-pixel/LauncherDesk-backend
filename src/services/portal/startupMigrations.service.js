@@ -95,11 +95,32 @@ async function backfillClientCodes() {
   }
 }
 
+// One-time correction: CreateServiceModal never exposed an isPublic field, so every
+// service created through it defaulted to isPublic:false regardless of the admin's
+// intent. An ACTIVE service is, by definition, meant for clients to buy — a service
+// an admin deliberately wants staged/hidden belongs in DRAFT status, not ACTIVE with
+// a visibility flag nobody could see or set. Idempotent: only touches the mismatch.
+async function backfillServiceVisibility() {
+  try {
+    const { Service } = require('../../models/portal');
+    const { SERVICE_STATUS } = require('../../constants/portal/serviceStatus');
+    const result = await Service.updateMany(
+      { status: SERVICE_STATUS.ACTIVE, isPublic: false },
+      { $set: { isPublic: true } }
+    );
+    const count = result.modifiedCount ?? result.nModified ?? 0;
+    if (count > 0) logger.info(`[migration] Made ${count} ACTIVE service(s) visible in the client catalogue.`);
+  } catch (err) {
+    logger.error('[migration] backfillServiceVisibility failed:', err.message);
+  }
+}
+
 async function runPortalStartupMigrations() {
   await backfillAdminCodes();
   await backfillInvoiceNumbers();
   await backfillPaidOrderPayments();
   await backfillClientCodes();
+  await backfillServiceVisibility();
 }
 
 module.exports = { runPortalStartupMigrations };
