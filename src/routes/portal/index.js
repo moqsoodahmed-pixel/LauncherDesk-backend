@@ -10,6 +10,7 @@ router.use('/services', require('./services.routes'));
 router.use('/orders', require('./orders.routes'));
 router.use('/payments', require('./payments.routes'));
 router.use('/kyc', require('./kyc.routes'));
+router.use('/invoices', require('./invoices.routes'));
 router.use('/documents', require('./documents.routes'));
 router.use('/notifications', require('./notifications.routes'));
 router.use('/communications', require('./communications.routes'));

@@ -16,6 +16,7 @@ const { logAudit } = require('./auditLog.service');
 const notificationEventsService = require('./notificationEvents.service');
 const { effectivePermissions, effectiveDataScope } = require('./authorization.service');
 const { getEmailProvider } = require('../../adapters/email');
+const { wrapEmailLayout } = require('../../communication/emailLayout');
 const { AUDIT_ACTIONS } = require('../../constants/portal/auditActions');
 const { USER_STATUS } = require('../../constants/portal/userStatus');
 
@@ -284,7 +285,14 @@ async function requestPasswordReset({ email, ipAddress, userAgent }) {
     await getEmailProvider().send({
       to: user.email,
       subject: 'Reset your LauncherDesk password',
-      html: `<p>Use the link below to reset your password. It expires in ${env.PASSWORD_RESET_EXPIRES_MINUTES} minutes.</p><p><a href="${link}">${link}</a></p>`,
+      // Part 9 of the transactional-email brief: same branded wrapper every
+      // other email goes through (communicationProcessor.service.js applies
+      // it for the CommunicationLog-backed events; this one still sends
+      // directly via getEmailProvider() since it isn't Order/Client scoped,
+      // so it wraps here instead).
+      html: wrapEmailLayout(
+        `<p>Hi ${user.name || ''},</p><p>We received a request to reset your LauncherDesk password. This link expires in ${env.PASSWORD_RESET_EXPIRES_MINUTES} minutes.</p><a href="${link}" style="display:inline-block;padding:12px 24px;background:linear-gradient(135deg,#1D6FE0,#0F52C0);color:#fff;font-weight:700;font-size:13.5px;text-decoration:none;border-radius:8px;">Reset Password</a><p style="margin-top:16px;color:#64748B;font-size:12px;">If you didn't request this, you can safely ignore this email.</p>`
+      ),
       templateKey: 'PASSWORD_RESET',
       relatedResourceType: 'User',
       relatedResourceId: user._id,

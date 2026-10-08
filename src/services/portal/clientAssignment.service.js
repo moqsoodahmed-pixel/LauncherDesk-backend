@@ -73,6 +73,14 @@ async function assignClient({ clientId, adminId, actor, reason = null, meta = {}
     ...meta,
   });
 
+  // Part 6 of the transactional-email brief: notify both sides of the
+  // assignment. Never blocks the assignment itself if either send fails.
+  const communicationService = require('./communication.service');
+  if (client.email) {
+    communicationService.sendClientAssignedAdminNotice(client, client.email, admin).catch(() => {});
+  }
+  communicationService.sendAdminClientAssignedNotice(admin, client).catch(() => {});
+
   // So the assign/reassign response itself carries the admin's name immediately,
   // not just a later re-fetch of the client.
   await client.populate('assignedAdmin', 'name adminCode');

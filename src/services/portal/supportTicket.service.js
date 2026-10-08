@@ -5,6 +5,7 @@ const AppError = require('../../utils/portal/AppError');
 const { logAudit } = require('./auditLog.service');
 const { AUDIT_ACTIONS } = require('../../constants/portal/auditActions');
 const { generateTicketCode } = require('./idGenerator.service');
+const notificationEventsService = require('./notificationEvents.service');
 
 function serializeTicket(ticket, { includeMessages = true } = {}) {
   const t = ticket.toObject ? ticket.toObject() : ticket;
@@ -65,6 +66,10 @@ async function createTicket({ clientId, orderId, subject, body, senderName, acto
     resourceId: ticket._id,
     metadata: { ticketCode, subject },
   });
+
+  notificationEventsService
+    .notifySupportTicketCreated(ticket, actor._id || actor)
+    .catch((err) => console.error('[supportTicket] notifySupportTicketCreated failed', err));
 
   return serializeTicket(ticket);
 }

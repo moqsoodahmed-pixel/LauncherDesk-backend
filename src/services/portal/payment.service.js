@@ -461,7 +461,7 @@ async function requestRefund({ payment, order, actor, reason, meta = {} }) {
   });
 
   await communicationService.sendPaymentRefunded(order, { amountPaise: refundable }).catch(() => {});
-  await notificationEventsService.notifyPaymentRefunded(order).catch(() => {});
+  await notificationEventsService.notifyPaymentRefunded(order, actor._id).catch(() => {});
 
   return { payment, order };
 }

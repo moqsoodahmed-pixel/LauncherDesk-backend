@@ -12,9 +12,29 @@ const BREVO_SEND_URL = 'https://api.brevo.com/v3/smtp/email';
  * Never logs env.BREVO_API_KEY.
  */
 class BrevoProvider extends EmailProviderInterface {
-  async send({ to, subject, html }) {
+  /**
+   * `attachments` (optional): [{ filename, content }] where content is a
+   * Buffer or base64 string - passed straight through to Brevo's own
+   * `attachment` field (its documented format: base64 `content` + `name`).
+   * Nothing here persists the attachment; the caller (invoice.service.js)
+   * is responsible for already having stored the file and is only handing
+   * it here to be sent.
+   */
+  async send({ to, subject, html, attachments }) {
     let response;
     try {
+      const body = {
+        sender: { email: env.BREVO_SENDER_EMAIL, name: env.BREVO_SENDER_NAME },
+        to: [{ email: to }],
+        subject,
+        htmlContent: html,
+      };
+      if (Array.isArray(attachments) && attachments.length > 0) {
+        body.attachment = attachments.map((a) => ({
+          content: Buffer.isBuffer(a.content) ? a.content.toString('base64') : a.content,
+          name: a.filename,
+        }));
+      }
       response = await fetch(BREVO_SEND_URL, {
         method: 'POST',
         headers: {
@@ -22,12 +42,7 @@ class BrevoProvider extends EmailProviderInterface {
           'content-type': 'application/json',
           accept: 'application/json',
         },
-        body: JSON.stringify({
-          sender: { email: env.BREVO_SENDER_EMAIL, name: env.BREVO_SENDER_NAME },
-          to: [{ email: to }],
-          subject,
-          htmlContent: html,
-        }),
+        body: JSON.stringify(body),
       });
     } catch (err) {
       // Network-level failure (DNS, timeout, connection reset) - never log

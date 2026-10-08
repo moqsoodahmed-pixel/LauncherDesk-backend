@@ -43,12 +43,23 @@ async function isSubmissionComplete(order) {
   return required.every((d) => uploadedTypes.has(d.documentType));
 }
 
-/** Does any current-version required document currently sit REJECTED? */
+/**
+ * Does any current-version required document currently sit REJECTED (or,
+ * Part 5 addition, NEED_REUPLOAD)? Both outcomes mean the client must
+ * re-submit that document before the order can proceed, so both revert the
+ * order the same way in reconcileOrderAfterDocumentDecision below - see
+ * KYC_DOCUMENT_STATUS.NEED_REUPLOAD's doc-comment in constants/portal/
+ * kycStatus.js for why this is a document-level-only distinction.
+ */
 async function hasRejectedRequiredDocument(order) {
   const requiredTypes = new Set((order.serviceSnapshot?.requiredDocuments || []).map((d) => d.documentType));
   if (requiredTypes.size === 0) return false;
   const documents = await getCurrentDocuments(order._id);
-  return documents.some((d) => requiredTypes.has(d.documentType) && d.status === KYC_DOCUMENT_STATUS.REJECTED);
+  return documents.some(
+    (d) =>
+      requiredTypes.has(d.documentType) &&
+      (d.status === KYC_DOCUMENT_STATUS.REJECTED || d.status === KYC_DOCUMENT_STATUS.NEED_REUPLOAD)
+  );
 }
 
 /**

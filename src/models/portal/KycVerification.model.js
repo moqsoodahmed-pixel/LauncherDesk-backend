@@ -19,7 +19,10 @@ const kycVerificationSchema = new Schema(
     order: { type: Schema.Types.ObjectId, ref: 'PortalOrder', required: true, index: true },
     client: { type: Schema.Types.ObjectId, ref: 'PortalClient', required: true, index: true },
 
-    action: { type: String, enum: ['REVIEW_STARTED', 'VERIFIED', 'REJECTED'], required: true },
+    // 'NEED_REUPLOAD' added (Part 5, additive) alongside the original 3
+    // values for kyc.service.js's requestReupload - existing rows only ever
+    // contain the original 3 and are unaffected.
+    action: { type: String, enum: ['REVIEW_STARTED', 'VERIFIED', 'REJECTED', 'NEED_REUPLOAD'], required: true },
     resultingStatus: { type: String, enum: ALL_KYC_DOCUMENT_STATUSES, required: true },
     reason: { type: String, default: null },
 

@@ -7,9 +7,12 @@ const validateRequest = require('../../middleware/portal/validateRequest');
 const { ROLES } = require('../../constants/portal/roles');
 const clientsController = require('../../controllers/portal/clients.controller');
 const servicesController = require('../../controllers/portal/services.controller');
+const invoiceService = require('../../services/portal/invoice.service');
 const { updateOwnProfileValidator } = require('../../validators/portal/clients.validators');
-const { Payment, Order } = require('../../models/portal');
+const { Payment, Order, Client } = require('../../models/portal');
 const { sendSuccess } = require('../../utils/portal/apiResponse');
+const AppError = require('../../utils/portal/AppError');
+const kycRequirementsService = require('../../services/portal/kycRequirements.service');
 
 /**
  * The CLIENT role's own self-service profile — distinct from
@@ -26,6 +29,70 @@ router.patch('/profile', updateOwnProfileValidator, validateRequest, clientsCont
 // serializer (services.service.serializePublicService), never the internal shape.
 router.get('/services', servicesController.listPublic);
 router.get('/services/:id', servicesController.getPublicById);
+
+// The client's own invoices only - scoped by req.user.clientProfile (their
+// own linked Client document), never a client-supplied clientId, so there
+// is nothing here to IDOR, matching this router's own doc-comment above.
+router.get('/invoices', async (req, res, next) => {
+  try {
+    if (!req.user.clientProfile) return next(AppError.notFound());
+    const { page, limit } = req.query;
+    const result = await invoiceService.listInvoicesForClient(req.user.clientProfile, {
+      page: parseInt(page) || 1,
+      limit: Math.min(parseInt(limit) || 20, 100),
+    });
+    return sendSuccess(res, { message: 'Invoices.', data: result.items, meta: result.meta });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Order Details page: "Invoice Available" status for one of the client's own
+// orders - scoped by req.user.clientProfile the same as every route in this
+// router, so a client can never probe another client's order id for this.
+router.get('/invoices/order/:orderId', async (req, res, next) => {
+  try {
+    const invoice = await invoiceService.getInvoiceByOrder(req.params.orderId);
+    if (invoice && String(invoice.client) !== String(req.user.clientProfile)) {
+      return next(AppError.notFound());
+    }
+    return sendSuccess(res, { message: invoice ? 'Invoice.' : 'No invoice yet.', data: invoice });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/invoices/:id/download', async (req, res, next) => {
+  try {
+    const PortalInvoice = require('../../models/portal/Invoice.model');
+    const invoice = await PortalInvoice.findOne({ _id: req.params.id, client: req.user.clientProfile });
+    if (!invoice) return next(AppError.notFound());
+    const { buffer, filename } = await invoiceService.getInvoiceFile(invoice._id, req.user);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// New, additive, read-only endpoint (Part 5 enterprise KYC) - resolves
+// which document types are relevant to THIS client based on their own
+// business profile (businessType + gst.applicable). Entirely separate
+// from, and does not touch, the existing order-scoped KYC routes
+// (routes/portal/kyc.routes.js, clientOrders.routes.js) or the
+// Service.requiredDocuments snapshot mechanism those rely on.
+router.get('/kyc/requirements', async (req, res, next) => {
+  try {
+    if (!req.user.clientProfile) return next(AppError.notFound());
+    const client = await Client.findById(req.user.clientProfile).select('businessType gst.applicable').lean();
+    if (!client) return next(AppError.notFound());
+    const resolved = kycRequirementsService.resolveRequiredDocumentTypesForClient(client);
+    return sendSuccess(res, { message: 'KYC document requirements for your business profile.', data: resolved });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ── Payment method display labels ─────────────────────────────────────────────
 // FIX BUG-CL-03: "DEVELOPMENT" was shown as-is to clients. Map internal provider

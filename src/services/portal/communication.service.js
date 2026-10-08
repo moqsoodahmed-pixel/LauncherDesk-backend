@@ -25,7 +25,7 @@ function orderUrl(orderId) {
  * call is itself a deliberate retry and reuses the same record/identity
  * rather than creating a new one (per Phase 9 spec §21).
  */
-async function dispatchCommunicationEvent({ eventType, channel, to, order = null, client = null, variables = {}, idempotencySuffix = null, meta = {} }) {
+async function dispatchCommunicationEvent({ eventType, channel, to, order = null, client = null, variables = {}, idempotencySuffix = null, meta = {}, attachmentStorageKey = null, attachmentFileName = null }) {
   try {
     const template = getTemplate(eventType);
     const channelKey = channel.toLowerCase();
@@ -66,6 +66,10 @@ async function dispatchCommunicationEvent({ eventType, channel, to, order = null
       log.failureReason = null;
       log.failedAt = null;
       log.nextAttemptAt = null;
+      if (attachmentStorageKey) {
+        log.attachmentStorageKey = attachmentStorageKey;
+        log.attachmentFileName = attachmentFileName;
+      }
       await log.save();
     } else {
       const provider = channel === COMMUNICATION_CHANNEL.EMAIL ? (env.BREVO_API_KEY ? 'BREVO' : 'DEVELOPMENT') : env.MSG91_AUTH_KEY ? 'MSG91' : 'DEVELOPMENT';
@@ -81,6 +85,8 @@ async function dispatchCommunicationEvent({ eventType, channel, to, order = null
         provider,
         status: COMMUNICATION_STATUS.QUEUED,
         idempotencyKey,
+        attachmentStorageKey,
+        attachmentFileName,
       });
     }
 
@@ -130,6 +136,11 @@ async function sendOrderPaymentConfirmed(order, { paymentDate } = {}) {
     currency: order.pricing?.currency,
     paymentDate: (paymentDate || new Date()).toISOString().slice(0, 10),
     orderUrl: orderUrl(order._id),
+    // Parts 4 & 5: the order's invoiceNumber is assigned at creation time
+    // (idGenerator.service.js) and is already final by the time payment is
+    // confirmed; invoiceUrl points at the existing print-to-PDF invoice page.
+    invoiceNumber: order.invoiceNumber || null,
+    invoiceUrl: `${env.CLIENT_URL}/client/orders/${order._id}/invoice`,
   };
   await dispatchCommunicationEvent({ eventType: COMMUNICATION_EVENT.ORDER_PAYMENT_CONFIRMED, channel: COMMUNICATION_CHANNEL.EMAIL, to: order.clientSnapshot?.email, order, variables: vars });
   await dispatchCommunicationEvent({ eventType: COMMUNICATION_EVENT.ORDER_PAYMENT_CONFIRMED, channel: COMMUNICATION_CHANNEL.WHATSAPP, to: order.clientSnapshot?.phone, order, variables: vars });
@@ -199,6 +210,63 @@ async function sendKycDocumentRejected(order, document) {
   });
 }
 
+/**
+ * Wave 2 addition: fired from kyc.service.js's requestReupload, which
+ * (per Wave 1's doc-comment) deliberately did NOT dispatch anything yet.
+ * Mirrors sendKycDocumentRejected's exact structure/idempotency pattern.
+ */
+async function sendKycDocumentNeedReupload(order, document) {
+  const vars = {
+    clientName: order.clientSnapshot?.name,
+    orderNumber: order.orderCode,
+    documentType: document.documentType,
+    reason: document.rejectionReason,
+    orderUrl: orderUrl(order._id),
+  };
+  await dispatchCommunicationEvent({
+    eventType: COMMUNICATION_EVENT.KYC_DOCUMENT_NEED_REUPLOAD,
+    channel: COMMUNICATION_CHANNEL.EMAIL,
+    to: order.clientSnapshot?.email,
+    order,
+    variables: vars,
+    idempotencySuffix: `${document._id}:${document.version}`,
+  });
+}
+
+async function sendDocumentRequested(order, docRequest) {
+  const vars = {
+    clientName: order.clientSnapshot?.name,
+    orderNumber: order.orderCode,
+    documentLabel: docRequest.label || docRequest.documentType || 'a document',
+    orderUrl: orderUrl(order._id),
+  };
+  await dispatchCommunicationEvent({
+    eventType: COMMUNICATION_EVENT.DOCUMENT_REQUESTED,
+    channel: COMMUNICATION_CHANNEL.EMAIL,
+    to: order.clientSnapshot?.email,
+    order,
+    variables: vars,
+    idempotencySuffix: String(docRequest._id),
+  });
+}
+
+async function sendDocumentFulfilled(order, docRequest) {
+  const vars = {
+    clientName: order.clientSnapshot?.name,
+    orderNumber: order.orderCode,
+    documentLabel: docRequest.label || docRequest.documentType || 'document',
+    orderUrl: orderUrl(order._id),
+  };
+  await dispatchCommunicationEvent({
+    eventType: COMMUNICATION_EVENT.DOCUMENT_FULFILLED,
+    channel: COMMUNICATION_CHANNEL.EMAIL,
+    to: order.clientSnapshot?.email,
+    order,
+    variables: vars,
+    idempotencySuffix: `fulfilled:${docRequest._id}`,
+  });
+}
+
 async function sendKycVerified(order) {
   const vars = { clientName: order.clientSnapshot?.name, orderNumber: order.orderCode, orderUrl: orderUrl(order._id) };
   await dispatchCommunicationEvent({ eventType: COMMUNICATION_EVENT.KYC_VERIFIED, channel: COMMUNICATION_CHANNEL.EMAIL, to: order.clientSnapshot?.email, order, variables: vars });
@@ -216,6 +284,120 @@ async function sendPaymentRefunded(order, { amountPaise } = {}) {
   await dispatchCommunicationEvent({ eventType: COMMUNICATION_EVENT.PAYMENT_REFUNDED, channel: COMMUNICATION_CHANNEL.EMAIL, to: order.clientSnapshot?.email, order, variables: vars });
 }
 
+/** Part 1 of the transactional-email brief: fired once, the moment a CLIENT portal_user is first created. */
+async function sendClientWelcome(portalUser, client) {
+  const vars = {
+    clientName: portalUser.name,
+    clientCode: client?.clientCode || null,
+    email: portalUser.email,
+    registeredDate: (portalUser.createdAt || new Date()).toISOString().slice(0, 10),
+    status: portalUser.status,
+    loginUrl: `${env.CLIENT_URL}/user/login`,
+  };
+  await dispatchCommunicationEvent({
+    eventType: COMMUNICATION_EVENT.CLIENT_WELCOME,
+    channel: COMMUNICATION_CHANNEL.EMAIL,
+    to: portalUser.email,
+    client,
+    variables: vars,
+  });
+}
+
+/** Part 2: fired when a Super Admin creates a new Admin via admins.service.js createAdmin(). */
+async function sendAdminCreated(admin) {
+  const vars = {
+    adminName: admin.name,
+    adminCode: admin.adminCode || null,
+    email: admin.email,
+    role: admin.role,
+    loginUrl: `${env.CLIENT_URL}/user/login`,
+  };
+  await dispatchCommunicationEvent({
+    eventType: COMMUNICATION_EVENT.ADMIN_CREATED,
+    channel: COMMUNICATION_CHANNEL.EMAIL,
+    to: admin.email,
+    variables: vars,
+    idempotencySuffix: String(admin._id),
+  });
+}
+
+/** Part 6 (client-facing half): "You have been assigned an Account Manager." */
+async function sendClientAssignedAdminNotice(client, clientUserEmail, admin) {
+  const vars = { clientName: client.name, adminName: admin.name, adminEmail: admin.email };
+  await dispatchCommunicationEvent({
+    eventType: COMMUNICATION_EVENT.CLIENT_ASSIGNED_ADMIN,
+    channel: COMMUNICATION_CHANNEL.EMAIL,
+    to: clientUserEmail,
+    client,
+    variables: vars,
+    // Re-assignment to a different admin is a distinct event from the first
+    // assignment - keyed by which admin, so switching admins re-notifies.
+    idempotencySuffix: String(admin._id),
+  });
+}
+
+/** Part 6 (admin-facing half): "New Client Assigned". */
+async function sendAdminClientAssignedNotice(admin, client) {
+  const vars = {
+    adminName: admin.name,
+    clientName: client.name,
+    clientCode: client.clientCode,
+    clientEmail: client.email,
+    clientPhone: client.phone || 'Not provided',
+    companyName: client.companyName || client.name,
+    assignedDate: new Date().toISOString().slice(0, 10),
+    clientUrl: `${env.CLIENT_URL}/${admin.role === 'SUPER_ADMIN' ? 'super-admin' : 'admin'}/clients/${client._id}`,
+  };
+  await dispatchCommunicationEvent({
+    eventType: COMMUNICATION_EVENT.ADMIN_CLIENT_ASSIGNED,
+    channel: COMMUNICATION_CHANNEL.EMAIL,
+    to: admin.email,
+    client,
+    variables: vars,
+    // Same client assigned to the same admin a second time (e.g. a
+    // double-submit) is a no-op, never a second email - keyed by the pair,
+    // not by time.
+    idempotencySuffix: String(admin._id),
+  });
+}
+
+/**
+ * Part 5 (email) of the invoice-generation brief: fired once per Invoice
+ * record, PDF attached.
+ *
+ * `resendSuffix`: omitted for the one automatic send that happens the
+ * moment a payment is confirmed (idempotencySuffix keyed by invoice._id
+ * alone, so a double-fired payment-confirmation event can never send the
+ * same invoice email twice). An explicit admin "Resend Email" action,
+ * however, is a deliberate, one-off command - if it reused that same key,
+ * dispatchCommunicationEvent would see the original send as already
+ * SENT and silently no-op, so "Resend" would never actually resend
+ * anything. Passing a fresh, time-based suffix here makes a resend its
+ * own distinct, fully logged CommunicationLog record every time.
+ */
+async function sendInvoiceGenerated(order, invoice, { resend = false } = {}) {
+  const vars = {
+    customerName: invoice.billingSnapshot.customerName,
+    orderCode: order.orderCode,
+    invoiceNumber: invoice.invoiceNumber,
+    amountPaid: (invoice.billingSnapshot.totalAmountMinor / 100).toFixed(2),
+    currency: invoice.billingSnapshot.currency,
+    paymentStatus: 'PAID',
+    invoiceUrl: `${env.CLIENT_URL}/client/invoices/${invoice._id}`,
+  };
+  await dispatchCommunicationEvent({
+    eventType: COMMUNICATION_EVENT.INVOICE_GENERATED,
+    channel: COMMUNICATION_CHANNEL.EMAIL,
+    to: invoice.billingSnapshot.customerEmail,
+    order,
+    client: invoice.client,
+    variables: vars,
+    idempotencySuffix: resend ? `resend:${Date.now()}` : String(invoice._id),
+    attachmentStorageKey: invoice.storageKey,
+    attachmentFileName: invoice.originalFileName,
+  });
+}
+
 module.exports = {
   dispatchCommunicationEvent,
   sendOrderCreated,
@@ -230,6 +412,14 @@ module.exports = {
   sendKycSubmitted,
   sendKycRejected,
   sendKycDocumentRejected,
+  sendKycDocumentNeedReupload,
+  sendDocumentRequested,
+  sendDocumentFulfilled,
   sendKycVerified,
   sendPaymentRefunded,
+  sendClientWelcome,
+  sendAdminCreated,
+  sendClientAssignedAdminNotice,
+  sendAdminClientAssignedNotice,
+  sendInvoiceGenerated,
 };

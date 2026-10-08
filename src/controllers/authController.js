@@ -14,7 +14,7 @@ const LEGACY_PERMISSIONS = {
 }
 
 const signToken = (id) =>
-  jwt.sign({ id }, process.env.JWT_SECRET || 'launcherdesk_jwt_fallback_secret_key_2026', { expiresIn: process.env.JWT_EXPIRE || '7d' })
+  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' })
 
 // Roles whose session lives in the Portal (portal_users + PORTAL_JWT_* tokens).
 // They must always leave login through a portal path; a legacy JWT_SECRET token
@@ -100,6 +100,11 @@ exports.register = asyncHandler(async (req, res, next) => {
 
       portalUserDoc.clientProfile = clientDoc._id
       await portalUserDoc.save()
+
+      // Part 1 of the transactional-email brief: welcome email, fired once
+      // here - the single authoritative place a brand-new CLIENT account is
+      // fully formed (PortalUser + linked Client). Never blocks registration.
+      require('../services/portal/communication.service').sendClientWelcome(portalUserDoc, clientDoc).catch(() => {})
 
       let loginResult
       try {

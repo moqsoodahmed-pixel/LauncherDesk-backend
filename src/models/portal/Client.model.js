@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { ALL_CLIENT_STATUSES, CLIENT_STATUS } = require('../../constants/portal/clientStatus');
+const { ALL_BUSINESS_TYPES } = require('../../constants/portal/businessTypes');
 const { Schema } = mongoose;
 
 const clientSchema = new Schema(
@@ -27,6 +28,15 @@ const clientSchema = new Schema(
       applicable: { type: Boolean, default: false },
     },
     panNumber: { type: String, trim: true, uppercase: true, default: null },
+
+    // New, additive, optional (Part 5 enterprise KYC) - drives
+    // services/portal/kycRequirements.service.js's resolved document list.
+    // Nullable so every existing client row (none has this field today,
+    // confirmed via a live DB check) is completely unaffected; the client
+    // simply gets no resolved requirements until they set it via their
+    // profile. GST-registered vs not is intentionally NOT duplicated here -
+    // `gst.applicable` above already covers it.
+    businessType: { type: String, enum: ALL_BUSINESS_TYPES, default: null },
 
     notes: { type: String, default: null }, // internal only - never exposed through the Client self-service profile endpoint
 

@@ -39,17 +39,32 @@ async function clientUserId(clientId) {
   return client?.user || null;
 }
 
-async function notifyOrderCreated(order) {
+async function notifyOrderCreated(order, actorId) {
   const recipientUserId = await clientUserId(order.client);
-  return notificationService.createNotification({
-    recipientUserId,
-    type: NOTIFICATION_EVENT.ORDER_CREATED,
-    title: 'Order received',
-    message: `Your order ${order.orderCode} has been received.`,
-    relatedResourceType: 'Order',
-    relatedResourceId: order._id,
-    order,
-  });
+  const [, superAdminNotifs] = await Promise.all([
+    notificationService.createNotification({
+      recipientUserId,
+      type: NOTIFICATION_EVENT.ORDER_CREATED,
+      title: 'Order received',
+      message: `Your order ${order.orderCode} has been received.`,
+      relatedResourceType: 'Order',
+      relatedResourceId: order._id,
+      order,
+    }),
+    // Part 3 gap: Super Admins previously had no visibility into new orders
+    // at all until payment was confirmed - mirrors the existing
+    // notifyOrderPaymentConfirmed() fan-out pattern exactly.
+    notifySuperAdmins({
+      actorId,
+      type: NOTIFICATION_EVENT.ORDER_CREATED,
+      title: `New order — ${order.orderCode}`,
+      message: `A new order has been placed: ${order.orderCode} (${order.serviceSnapshot?.name || 'service'}).`,
+      relatedResourceType: 'Order',
+      relatedResourceId: order._id,
+      idempotencySuffix: String(order._id),
+    }),
+  ]);
+  return superAdminNotifs;
 }
 
 async function notifyOrderPaymentConfirmed(order, actorId) {
@@ -253,16 +268,95 @@ async function notifyKycDocumentRejected(order, document) {
   });
 }
 
-async function notifyPaymentRefunded(order) {
+/** Wave 2 addition: mirrors notifyKycDocumentRejected's exact pattern. */
+async function notifyKycDocumentNeedsReupload(order, document) {
   const recipientUserId = await clientUserId(order.client);
   return notificationService.createNotification({
     recipientUserId,
-    type: NOTIFICATION_EVENT.PAYMENT_REFUNDED,
-    title: 'Refund processed',
-    message: `A refund has been processed for order ${order.orderCode}.`,
+    type: NOTIFICATION_EVENT.KYC_DOCUMENT_NEED_REUPLOAD,
+    severity: NOTIFICATION_SEVERITY.WARNING,
+    title: 'Document needs to be re-uploaded',
+    message: `Your ${document.documentType} for order ${order.orderCode} needs to be re-uploaded.`,
+    relatedResourceType: 'KycDocument',
+    relatedResourceId: document._id,
+    order,
+    idempotencySuffix: `${document._id}:${document.version}`,
+  });
+}
+
+/** Wave 2 addition: mirrors notifyOrderAssigned's exact single-recipient pattern. */
+async function notifyKycReviewerAssigned(document, reviewer, actorId) {
+  if (actorId && String(reviewer._id) === String(actorId)) return null; // no self-notification
+  return notificationService.createNotification({
+    recipientUserId: reviewer._id,
+    type: NOTIFICATION_EVENT.KYC_REVIEWER_ASSIGNED,
+    title: 'KYC document assigned to you',
+    message: `A ${document.documentType} document has been assigned to you for review.`,
+    relatedResourceType: 'KycDocument',
+    relatedResourceId: document._id,
+    idempotencySuffix: String(reviewer._id),
+  });
+}
+
+async function notifyPaymentRefunded(order, actorId) {
+  const recipientUserId = await clientUserId(order.client);
+  const [clientNotif] = await Promise.all([
+    notificationService.createNotification({
+      recipientUserId,
+      type: NOTIFICATION_EVENT.PAYMENT_REFUNDED,
+      title: 'Refund processed',
+      message: `A refund has been processed for order ${order.orderCode}.`,
+      relatedResourceType: 'Order',
+      relatedResourceId: order._id,
+      order,
+    }),
+    // Part 3 gap: admins previously had zero visibility into refunds.
+    notifySuperAdmins({
+      actorId,
+      type: NOTIFICATION_EVENT.PAYMENT_REFUNDED,
+      title: `Refund processed — ${order.orderCode}`,
+      message: `A refund was processed for order ${order.orderCode}.`,
+      relatedResourceType: 'Order',
+      relatedResourceId: order._id,
+      idempotencySuffix: `refund:${order._id}:${Date.now()}`,
+    }),
+  ]);
+  return clientNotif;
+}
+
+async function notifySupportTicketCreated(ticket, actorId) {
+  return notifySuperAdmins({
+    actorId,
+    type: NOTIFICATION_EVENT.SUPPORT_TICKET_CREATED,
+    title: `New support ticket — ${ticket.subject || ticket.ticketCode || ''}`.trim(),
+    message: `A new support ticket has been raised${ticket.ticketCode ? ` (${ticket.ticketCode})` : ''}.`,
+    relatedResourceType: 'SupportTicket',
+    relatedResourceId: ticket._id,
+    idempotencySuffix: String(ticket._id),
+  });
+}
+
+async function notifyInvoiceFailed(order, error) {
+  return notifySuperAdmins({
+    type: NOTIFICATION_EVENT.INVOICE_GENERATION_FAILED,
+    severity: NOTIFICATION_SEVERITY.ERROR,
+    title: `Invoice generation failed — ${order.orderCode}`,
+    message: `Invoice generation failed for order ${order.orderCode}: ${error?.message || 'Unknown error'}`,
     relatedResourceType: 'Order',
     relatedResourceId: order._id,
-    order,
+    idempotencySuffix: `invoice-fail:${order._id}:${Date.now()}`,
+  });
+}
+
+async function notifyEmailFailed(log) {
+  return notifySuperAdmins({
+    type: NOTIFICATION_EVENT.EMAIL_DELIVERY_FAILED,
+    severity: NOTIFICATION_SEVERITY.ERROR,
+    title: `Email delivery failed — ${log.eventType || ''}`.trim(),
+    message: `Delivery failed for ${log.eventType || 'a notification'} to ${log.to || 'recipient'}: ${log.failureReason || 'Unknown error'}`,
+    relatedResourceType: 'CommunicationLog',
+    relatedResourceId: log._id,
+    idempotencySuffix: `email-fail:${log._id}`,
   });
 }
 
@@ -379,6 +473,8 @@ module.exports = {
   notifyKycRejected,
   notifyKycVerified,
   notifyKycDocumentRejected,
+  notifyKycDocumentNeedsReupload,
+  notifyKycReviewerAssigned,
   notifyPaymentRefunded,
   notifyClientCreated,
   notifyClientStatusChanged,
@@ -386,4 +482,8 @@ module.exports = {
   notifyAdminStatusChanged,
   notifyPasswordChanged,
   notifySecurityEvent,
+  notifySupportTicketCreated,
+  notifyInvoiceFailed,
+  notifyEmailFailed,
+  notifySuperAdmins,
 };

@@ -61,7 +61,7 @@ router.post('/google-token', asyncHandler(async (req, res, next) => {
         user = await User.create({
             name: name || email.split('@')[0],
             email,
-            password: googleId + (process.env.JWT_SECRET || 'secret'),   // unusable password — OAuth users can't email-login
+            password: googleId + process.env.JWT_SECRET,   // unusable password — OAuth users can't email-login
             googleId,
             avatar: picture,
             role: 'user',
@@ -134,7 +134,7 @@ router.post('/microsoft-token', asyncHandler(async (req, res, next) => {
         user = await User.create({
             name: name || email.split('@')[0],
             email,
-            password: microsoftId + (process.env.JWT_SECRET || 'secret'),
+            password: microsoftId + process.env.JWT_SECRET,
             microsoftId,
             role: 'user',
             isActive: true,

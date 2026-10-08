@@ -10,8 +10,11 @@ const logger = require('../../utils/portal/logger');
  * not here) that this was simulated.
  */
 class DevelopmentEmailProvider extends EmailProviderInterface {
-  async send({ to, subject, html, templateKey }) {
-    logger.info(`[DevelopmentEmailProvider] Would send email to ${to} | subject="${subject}" | template=${templateKey}`);
+  async send({ to, subject, html, templateKey, attachments }) {
+    const attachmentNote = Array.isArray(attachments) && attachments.length > 0
+      ? ` | attachments=${attachments.map((a) => a.filename).join(',')}`
+      : '';
+    logger.info(`[DevelopmentEmailProvider] Would send email to ${to} | subject="${subject}" | template=${templateKey}${attachmentNote}`);
     return { status: 'SENT', providerMessageId: `dev_email_${crypto.randomUUID()}` };
   }
 }

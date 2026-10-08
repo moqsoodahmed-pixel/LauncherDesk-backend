@@ -57,6 +57,15 @@ const communicationLogSchema = new Schema(
     // so the same business event dispatched twice never creates a second
     // delivery record - the existing one is reused/retried instead.
     idempotencyKey: { type: String, required: true, unique: true },
+
+    // Optional reference to an already-stored file (e.g. an Invoice PDF) to
+    // attach on send. A REFERENCE only, never the raw bytes - this model's
+    // own rule above ("never store raw file contents") still holds. On
+    // every send/retry, communicationProcessor.service.js re-reads the file
+    // fresh from the storage adapter via this key, so a retry always
+    // attaches the real, current file rather than a stale copy.
+    attachmentStorageKey: { type: String, default: null, select: false },
+    attachmentFileName: { type: String, default: null },
   },
   { timestamps: true, collection: 'portal_email_logs' }
 );

@@ -171,6 +171,10 @@ async function createAdmin(payload, actor, meta = {}) {
     ...meta,
   });
   await notificationEventsService.notifyAdminCreated(user).catch(() => {});
+  // Part 2 of the transactional-email brief. No password is emailed - the
+  // Super Admin set it directly above (payload.password); there is nothing
+  // system-generated to send.
+  require('./communication.service').sendAdminCreated(user).catch(() => {});
 
   return serializeAdmin(user, { assignedClientsCount: 0 });
 }

@@ -13,7 +13,7 @@ const { kycFileUpload, handleUploadErrors } = require('../../middleware/portal/k
 const paymentController = require('../../controllers/portal/payment.controller');
 const communicationsController = require('../../controllers/portal/communications.controller');
 const { idOnlyValidator, listClientOrdersValidator, createClientOrderValidator, cancelValidator } = require('../../validators/portal/orders.validators');
-const { uploadDocumentValidator, documentActionValidator, orderIdOnlyValidator } = require('../../validators/portal/kyc.validators');
+const { uploadDocumentValidator, documentActionValidator, orderIdOnlyValidator, commentValidator } = require('../../validators/portal/kyc.validators');
 const { createPaymentOrderValidator, verifyPaymentValidator, reportFailureValidator } = require('../../validators/portal/payment.validators');
 
 /**
@@ -70,6 +70,13 @@ router.get(
   kycController.download
 );
 router.post('/:id/kyc/submit', orderIdOnlyValidator, validateRequest, loadOwnOrder, kycController.submit);
+
+// KYC comments - client self-service. loadOwnOrder already guarantees the
+// order belongs to this client. The service forces every CLIENT-authored
+// comment to CLIENT_VISIBLE and listComments never includes INTERNAL
+// comments for a client caller (kyc.controller.js's isClientReq check).
+router.get('/:id/kyc/comments', orderIdOnlyValidator, validateRequest, loadOwnOrder, kycController.listComments);
+router.post('/:id/kyc/comments', commentValidator, validateRequest, loadOwnOrder, kycController.addComment);
 
 // Client-safe communication status only (no provider internals) - Phase 9.
 router.get('/:id/communications', idOnlyValidator, validateRequest, loadOwnOrder, communicationsController.listForOwnOrder);

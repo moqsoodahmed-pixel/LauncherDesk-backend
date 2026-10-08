@@ -1,4 +1,13 @@
 require('dotenv').config()
+
+// Fail loudly instead of silently signing tokens with a guessable,
+// checked-into-source fallback secret (authController.js, routes/auth.js,
+// services/otpService.js all previously fell back to a hardcoded string
+// when this env var was unset).
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required and must not be empty.')
+}
+
 const express = require('express')
 const cors = require('cors')
 const helmet = require('helmet')

@@ -14,6 +14,7 @@ module.exports = {
   Payment: require('./Payment.model'),
   PaymentWebhookEvent: require('./PaymentWebhookEvent.model'),
   KycDocument: require('./KycDocument.model'),
+  Invoice: require('./Invoice.model'),
   KycVerification: require('./KycVerification.model'),
   Notification: require('./Notification.model'),
   AuditLog: require('./AuditLog.model'),
@@ -29,4 +30,7 @@ module.exports = {
   InternalNote: require('./InternalNote.model'),
   DocRequest: require('./DocRequest.model'),
   Announcement: require('./Announcement.model'),
+  // Part 5 enterprise KYC additions
+  KycOcrData: require('./KycOcrData.model'),
+  KycComment: require('./KycComment.model'),
 };

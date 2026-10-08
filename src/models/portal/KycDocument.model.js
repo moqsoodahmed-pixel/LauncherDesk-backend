@@ -41,7 +41,10 @@ const kycDocumentSchema = new Schema(
     sizeBytes: { type: Number, required: true },
     checksum: { type: String, required: true, index: true }, // SHA-256 hex digest of the file content
 
-    storageProvider: { type: String, enum: ['local', 's3'], required: true },
+    // 'cloudinary' added (Part 5, additive) alongside the existing 'local'/'s3'
+    // values - see adapters/storage/CloudinaryStorageAdapter.js. Existing rows
+    // only ever contain 'local' or 's3' and are completely unaffected.
+    storageProvider: { type: String, enum: ['local', 's3', 'cloudinary'], required: true },
     storageKey: { type: String, required: true, select: false }, // opaque reference, never exposed to any API response
 
     status: {
@@ -53,6 +56,23 @@ const kycDocumentSchema = new Schema(
     reviewedBy: { type: Schema.Types.ObjectId, ref: 'PortalUser', default: null },
     reviewedAt: { type: Date, default: null },
     rejectionReason: { type: String, default: null },
+
+    // Wave 2 addition (additive, nullable). The reviewer an Admin/Super
+    // Admin has designated to handle this specific document - purely
+    // informational/organizational (does not gate who may actually call
+    // verify/reject; the existing VERIFY_KYC/REJECT_KYC permission checks
+    // are unchanged). Set via kyc.service.js's assignReviewer.
+    assignedReviewer: { type: Schema.Types.ObjectId, ref: 'PortalUser', default: null, index: true },
+
+    // New, additive, optional (Part 5 enterprise KYC). The document's OWN
+    // real-world expiry (e.g. a passport/driving license's expiry date) -
+    // distinct from `retentionExpiresAt` below, which is about WHEN WE
+    // DELETE THE FILE, not whether its contents are still valid. Set by a
+    // reviewer (manually, or later by OCR extraction) when verifying a
+    // document that itself expires. Used only by the new, display-only
+    // services/portal/kycDisplayStatus.service.js to compute the
+    // client-facing "Expired" label - never changes `status` itself.
+    validUntil: { type: Date, default: null },
 
     lifecycleStatus: {
       type: String,

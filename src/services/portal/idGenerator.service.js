@@ -77,6 +77,16 @@ async function generateInvoiceNumber(date = new Date()) {
   return generateStandardId('LD', date);
 }
 
+// Distinct from generateInvoiceNumber() above (which numbers the ORDER's
+// invoiceNumber field, LD-prefixed, assigned at order creation). This is
+// the generated TAX INVOICE PDF's own number - INV-prefixed, assigned only
+// once a payment actually succeeds and a PDF is produced for it. Same
+// atomic/race-safe/never-reused counter mechanism, just its own daily
+// sequence (daily-INV-<date>), entirely independent of the LD- counters.
+async function generateTaxInvoiceNumber(date = new Date()) {
+  return generateStandardId('INV', date);
+}
+
 async function generateClientCode(date = new Date()) {
   return generateStandardId('LD', date);
 }
@@ -132,6 +142,7 @@ module.exports = {
   generateOrderCode,
   generateOrderNumber,
   generateInvoiceNumber,
+  generateTaxInvoiceNumber,
   generateClientCode,
   generateAdminCode,
   generatePaymentCode,

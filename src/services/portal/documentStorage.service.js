@@ -18,13 +18,20 @@ function sha256(buffer) {
  * Stores a file privately and returns its storage reference + checksum.
  * `keyPrefix` (e.g. an orderId) is server-generated/validated by the
  * caller - never derived from client-controlled input like a filename.
+ * `mimeType` is optional (existing callers predating Part 5 don't pass it,
+ * and LocalStorageAdapter/S3StorageAdapter ignore it for `save()`'s own
+ * purposes anyway) - CloudinaryStorageAdapter is the first adapter that
+ * actually uses it, to pick 'image' vs 'raw' resource_type.
  */
-async function uploadPrivateDocument({ buffer, originalFileName, keyPrefix }) {
+async function uploadPrivateDocument({ buffer, originalFileName, keyPrefix, mimeType }) {
   const provider = getStorageProvider();
-  const { storageKey } = await provider.save({ buffer, originalFileName, keyPrefix });
+  const { storageKey } = await provider.save({ buffer, originalFileName, mimeType, keyPrefix });
+  let storageProvider = 'local';
+  if (env.STORAGE_PROVIDER === 's3') storageProvider = 's3';
+  else if (env.STORAGE_PROVIDER === 'cloudinary') storageProvider = 'cloudinary'; // Part 5 addition
   return {
     storageKey,
-    storageProvider: env.STORAGE_PROVIDER === 's3' ? 's3' : 'local',
+    storageProvider,
     checksum: sha256(buffer),
     sizeBytes: buffer.length,
   };

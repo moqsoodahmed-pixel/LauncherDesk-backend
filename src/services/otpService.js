@@ -9,7 +9,7 @@ const User = require('../models/User')
 const NotificationSetting = require('../models/NotificationSetting')
 const events = require('./events')
 
-const hash = (userId, otp) => crypto.createHmac('sha256', process.env.OTP_SECRET || process.env.JWT_SECRET || 'ld-otp').update(`${userId}:${otp}`).digest('hex')
+const hash = (userId, otp) => crypto.createHmac('sha256', process.env.OTP_SECRET || process.env.JWT_SECRET).update(`${userId}:${otp}`).digest('hex')
 const err = (msg, statusCode = 400, extra = {}) => Object.assign(new Error(msg), { statusCode, ...extra })
 
 async function sendOtp(user) {

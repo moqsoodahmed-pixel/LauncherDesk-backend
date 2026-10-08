@@ -33,6 +33,11 @@ const {
   documentActionValidator,
   rejectDocumentValidator,
   orderIdOnlyValidator,
+  rejectCompleteKycValidator,
+  bulkDocumentIdsValidator,
+  bulkRejectValidator,
+  commentValidator,
+  exportValidator,
 } = require('../../validators/portal/kyc.validators');
 
 // Internal order management (Super Admin / Admin). Client self-service
@@ -201,6 +206,17 @@ router.patch(
   loadOrder,
   kycController.reject
 );
+// Wave 2 addition: a route for kyc.service.js's requestReupload (built in
+// Wave 1 with no route ever calling it - see kyc.controller.js's
+// doc-comment). Same permission gate as reject (its structural sibling).
+router.patch(
+  '/:id/kyc/documents/:documentId/request-reupload',
+  requirePermission(PERMISSIONS.REJECT_KYC),
+  rejectDocumentValidator,
+  validateRequest,
+  loadOrder,
+  kycController.requestReupload
+);
 router.post(
   '/:id/kyc/review',
   requirePermission(PERMISSIONS.VERIFY_KYC),
@@ -208,6 +224,100 @@ router.post(
   validateRequest,
   loadOrder,
   kycController.startReview
+);
+
+// ── Wave 2 (admin/super-admin KYC workflows) additions - all additive ─────
+
+// Order-level approve/reject complete KYC - distinct from the per-document
+// verify/reject above (those decide ONE document; these decide the order).
+router.patch(
+  '/:id/kyc/approve',
+  requirePermission(PERMISSIONS.VERIFY_KYC),
+  orderIdOnlyValidator,
+  validateRequest,
+  loadOrder,
+  kycController.approveOrderKyc
+);
+router.patch(
+  '/:id/kyc/reject',
+  requirePermission(PERMISSIONS.REJECT_KYC),
+  rejectCompleteKycValidator,
+  validateRequest,
+  loadOrder,
+  kycController.rejectOrderKyc
+);
+
+// Super Admin-only force approve/reject - bypasses the normal
+// order.status === KYC_VERIFICATION guard. Gated at the ROUTE level by an
+// actual role check (requireRole), not a grantable permission, matching
+// invoices.routes.js's regenerate/delete pattern.
+router.patch(
+  '/:id/kyc/documents/:documentId/force-verify',
+  requireRole(ROLES.SUPER_ADMIN),
+  documentActionValidator,
+  validateRequest,
+  loadOrder,
+  kycController.forceVerify
+);
+router.patch(
+  '/:id/kyc/documents/:documentId/force-reject',
+  requireRole(ROLES.SUPER_ADMIN),
+  rejectDocumentValidator,
+  validateRequest,
+  loadOrder,
+  kycController.forceReject
+);
+
+// Bulk verify/reject - an array of this ORDER's own document ids (capped,
+// see MAX_BULK_DOCUMENTS), same permission gates as the singular actions.
+router.post(
+  '/:id/kyc/documents/bulk-verify',
+  requirePermission(PERMISSIONS.VERIFY_KYC),
+  bulkDocumentIdsValidator,
+  validateRequest,
+  loadOrder,
+  kycController.bulkVerify
+);
+router.post(
+  '/:id/kyc/documents/bulk-reject',
+  requirePermission(PERMISSIONS.REJECT_KYC),
+  bulkRejectValidator,
+  validateRequest,
+  loadOrder,
+  kycController.bulkReject
+);
+
+// KYC comments - staff surface. Visibility (internal vs client-visible) is
+// decided by kycComments.service.js based on the caller's role; GET always
+// includes INTERNAL comments here since only staff ever reach this router.
+router.get(
+  '/:id/kyc/comments',
+  requireAnyPermission(PERMISSIONS.VIEW_KYC, PERMISSIONS.VIEW_OWN_DOCUMENTS),
+  orderIdOnlyValidator,
+  validateRequest,
+  loadOrder,
+  kycController.listComments
+);
+router.post(
+  '/:id/kyc/comments',
+  requireAnyPermission(PERMISSIONS.VIEW_KYC, PERMISSIONS.VIEW_OWN_DOCUMENTS),
+  commentValidator,
+  validateRequest,
+  loadOrder,
+  kycController.addComment
+);
+
+// Bulk export (ZIP of files + manifest.csv, or a standalone CSV manifest
+// via ?format=csv) of this order's current KYC documents. Gated by
+// DOWNLOAD_KYC (same permission as the existing single-file download) for
+// consistency with that existing download gate.
+router.get(
+  '/:id/kyc/export',
+  requirePermission(PERMISSIONS.DOWNLOAD_KYC),
+  exportValidator,
+  validateRequest,
+  loadOrder,
+  kycController.exportOrderKyc
 );
 
 // Payment (Phase 8) - internal visibility/admin actions only. No

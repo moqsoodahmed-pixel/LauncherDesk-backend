@@ -25,6 +25,7 @@ const env = {
   ACCOUNT_LOCK_MINUTES: parseInt(required('ACCOUNT_LOCK_MINUTES', '30'), 10),
 
   CLIENT_URL: required('CLIENT_URL', 'http://localhost:5173'),
+  SUPPORT_EMAIL: required('SUPPORT_EMAIL', 'contact@launcherdesk.com'),
 
   RAZORPAY_KEY_ID: required('RAZORPAY_KEY_ID', ''),
   RAZORPAY_KEY_SECRET: required('RAZORPAY_KEY_SECRET', ''),
@@ -47,6 +48,15 @@ const env = {
   STORAGE_REGION: required('STORAGE_REGION', 'ap-south-1'),
   STORAGE_ENDPOINT: required('STORAGE_ENDPOINT', ''),
   LOCAL_STORAGE_PATH: required('PORTAL_LOCAL_STORAGE_PATH', './private_uploads/portal_kyc'),
+
+  // Part 5 enterprise KYC additions. Plug-and-play: all default to '' /
+  // 'disabled' so nothing changes until the user sets real values.
+  CLOUDINARY_CLOUD_NAME: required('CLOUDINARY_CLOUD_NAME', ''),
+  CLOUDINARY_API_KEY: required('CLOUDINARY_API_KEY', ''),
+  CLOUDINARY_API_SECRET: required('CLOUDINARY_API_SECRET', ''),
+
+  OCR_PROVIDER: required('OCR_PROVIDER', 'disabled'),
+  ANTIVIRUS_PROVIDER: required('ANTIVIRUS_PROVIDER', 'disabled'),
 
   RETENTION_DAYS: parseInt(required('RETENTION_DAYS', '30'), 10),
   BCRYPT_ROUNDS: parseInt(required('BCRYPT_ROUNDS', '12'), 10),

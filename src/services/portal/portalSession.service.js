@@ -78,6 +78,12 @@ async function issuePortalSession({ user, rawPassword = null, req, res, targetRo
       });
       portalUser.clientProfile = clientDoc._id;
       await portalUser.save();
+
+      // Part 1 of the transactional-email brief: this is the other authoritative
+      // place (besides authController.register) a brand-new CLIENT portal_user
+      // is created - the first-ever login of a pre-existing LauncherDesk User
+      // account. Never blocks the login it was triggered from.
+      require('./communication.service').sendClientWelcome(portalUser, clientDoc).catch(() => {});
     }
   } else {
     // Portal user exists: ensure active and update role/permissions if upgraded

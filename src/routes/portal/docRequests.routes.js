@@ -10,6 +10,7 @@ const { DocRequest, Order } = require('../../models/portal');
 const AppError = require('../../utils/portal/AppError');
 const { sendSuccess } = require('../../utils/portal/apiResponse');
 const notificationService = require('../../services/portal/notification.service');
+const communicationService = require('../../services/portal/communication.service');
 const { generateDocRequestCode } = require('../../services/portal/idGenerator.service');
 
 // Staff routes — list and create requests
@@ -58,6 +59,8 @@ staffRouter.post('/', async (req, res, next) => {
       metadata: { orderId: order._id, documentType },
     }).catch(() => {});
 
+    communicationService.sendDocumentRequested(order, docReq).catch(() => {});
+
     await docReq.populate('requestedBy', 'name adminCode');
     sendSuccess(res, { statusCode: 201, message: 'Document request created.', data: docReq });
   } catch (err) {
@@ -77,6 +80,22 @@ staffRouter.patch('/:reqId', async (req, res, next) => {
       docReq.cancelledBy = req.user._id;
     }
     await docReq.save();
+
+    if (status === 'FULFILLED') {
+      const order = await Order.findById(req.params.orderId).populate('client');
+      if (order) {
+        notificationService.createNotification({
+          recipientUserId: order.client.user,
+          type: 'DOC_FULFILLED',
+          title: 'Document Received',
+          message: `Your ${docReq.label} has been received.`,
+          link: `/client/orders/${order._id}`,
+          metadata: { orderId: order._id, documentType: docReq.documentType },
+        }).catch(() => {});
+        communicationService.sendDocumentFulfilled(order, docReq).catch(() => {});
+      }
+    }
+
     sendSuccess(res, { message: 'Document request updated.', data: docReq });
   } catch (err) {
     next(err);

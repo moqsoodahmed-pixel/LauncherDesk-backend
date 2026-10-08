@@ -1,6 +1,6 @@
 ﻿const { ORDER_STATUS_TRANSITIONS, ORDER_STATUS, TERMINAL_ORDER_STATUSES, ORDER_STATUS_LABELS } = require('../../constants/portal/orderStatus');
 const { ORDER_PAYMENT_STATUS } = require('../../constants/portal/orderPaymentStatus');
-const { Order, OrderStatusHistory } = require('../../models/portal');
+const { Order, OrderStatusHistory, Payment } = require('../../models/portal');
 const Service = require('../../models/portal/Service.model');
 const AppError = require('../../utils/portal/AppError');
 const { logAudit } = require('./auditLog.service');
@@ -104,6 +104,16 @@ async function notifyStatusChange(order, fromStatus, toStatus) {
   }
   if (toStatus === ORDER_STATUS.PAYMENT_CONFIRMED) {
     await notificationEventsService.notifyOrderPaymentConfirmed(order).catch(() => {});
+    // Invoice generation only ever happens here, the single authoritative
+    // point an order's payment is confirmed - never from the payment
+    // controller/webhook directly, so there is exactly one trigger site.
+    // Self-contained: looks up its own Payment record rather than needing
+    // this function's signature changed, per "do not modify the existing
+    // payment flow."
+    Payment.findOne({ order: order._id, status: 'CONFIRMED' }).sort({ paidAt: -1 }).then((payment) => {
+      if (!payment) return;
+      return require('./invoice.service').generateAndSendInvoiceForPayment(order, payment);
+    }).catch((err) => logger.error(`[orderStateMachine] invoice generation threw: ${err.message}`));
     return communicationService.sendOrderPaymentConfirmed(order);
   }
   if (toStatus === ORDER_STATUS.CANCELLED) {

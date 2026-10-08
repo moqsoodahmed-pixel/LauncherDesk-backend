@@ -323,7 +323,7 @@ async function createOrder({ clientId, serviceId, orderDetails, notes, source, a
   // Fire-and-forget: communication.service.js never throws, so this can
   // never fail order creation - see its own doc-comment.
   await communicationService.sendOrderCreated(order).catch(() => {});
-  await notificationEventsService.notifyOrderCreated(order).catch(() => {});
+  await notificationEventsService.notifyOrderCreated(order, actor?._id).catch(() => {});
 
   // Immediately advance CREATED -> PAYMENT_PENDING when a payment is
   // expected, through the single state-machine service so the hop is

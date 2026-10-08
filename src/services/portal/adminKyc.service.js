@@ -113,7 +113,7 @@ async function getKycStats() {
   const startOfWeek = new Date(today);
   startOfWeek.setDate(today.getDate() - today.getDay());
 
-  const [counts, verifiedToday, verifiedWeek, avgTime] = await Promise.all([
+  const [counts, verifiedToday, verifiedWeek, avgTime, documentTypeAgg, businessTypeAgg] = await Promise.all([
     KycDocument.aggregate([
       { $match: base },
       { $group: { _id: '$status', count: { $sum: 1 } } },
@@ -128,6 +128,22 @@ async function getKycStats() {
         },
       },
       { $group: { _id: null, avgMs: { $avg: '$diffMs' } } },
+    ]),
+    // Wave 2 analytics addition: counts by document type.
+    KycDocument.aggregate([
+      { $match: base },
+      { $group: { _id: '$documentType', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]),
+    // Wave 2 analytics addition: counts by the owning client's businessType
+    // (Part 5/Wave 1's new, nullable Client.businessType field - a client
+    // with it unset groups under 'UNSPECIFIED').
+    KycDocument.aggregate([
+      { $match: base },
+      { $lookup: { from: 'portal_clients', localField: 'client', foreignField: '_id', as: 'clientDoc' } },
+      { $unwind: { path: '$clientDoc', preserveNullAndEmptyArrays: true } },
+      { $group: { _id: { $ifNull: ['$clientDoc.businessType', 'UNSPECIFIED'] }, count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
     ]),
   ]);
 
@@ -149,6 +165,12 @@ async function getKycStats() {
     verifiedToday,
     verifiedWeek,
     avgVerificationTime: avgLabel,
+    // Wave 2 additions - purely additive fields, existing fields above are
+    // untouched so no existing consumer of this response shape breaks.
+    needReupload: byStatus[KYC_DOCUMENT_STATUS.NEED_REUPLOAD] || 0,
+    avgTurnaroundHours: Math.round(avgMs / 360000) / 10, // one decimal place
+    byDocumentType: documentTypeAgg.map((d) => ({ documentType: d._id, count: d.count })),
+    byBusinessType: businessTypeAgg.map((d) => ({ businessType: d._id, count: d.count })),
   };
 }
 

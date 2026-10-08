@@ -3,10 +3,13 @@ const { COMMUNICATION_CHANNEL } = require('../../constants/portal/communicationC
 const { COMMUNICATION_STATUS } = require('../../constants/portal/communicationStatus');
 const { getTemplate } = require('../../communication/templates');
 const { renderTemplate } = require('../../communication/renderTemplate');
+const { wrapEmailLayout } = require('../../communication/emailLayout');
 const { getEmailProvider } = require('../../adapters/email');
+const { getPrivateDocument } = require('./documentStorage.service');
 const { getWhatsAppProvider, getSmsProvider } = require('../../adapters/whatsapp');
 const { normalizeProviderError } = require('./providerError.service');
 const { logAudit } = require('./auditLog.service');
+const notificationEventsService = require('./notificationEvents.service');
 const { AUDIT_ACTIONS } = require('../../constants/portal/auditActions');
 const env = require('../../config/portal');
 const logger = require('../../utils/portal/logger');
@@ -27,8 +30,22 @@ async function sendViaProvider(log) {
   if (log.channel === COMMUNICATION_CHANNEL.EMAIL) {
     const provider = getEmailProvider();
     const subject = renderTemplate(channelTemplate.subject, log.variables);
-    const html = renderTemplate(channelTemplate.html, log.variables);
-    return provider.send({ to: log.to, subject, html, templateKey: log.eventType });
+    // Every outbound email goes through the same branded header/footer wrapper
+    // here, in the one place that actually sends - templates in templates.js
+    // only ever author their own inner content, never the surrounding chrome.
+    const html = wrapEmailLayout(renderTemplate(channelTemplate.html, log.variables, { escapeHtml: true }));
+
+    let attachments;
+    if (log.attachmentStorageKey) {
+      // Re-read from the storage adapter on every send/retry rather than
+      // caching bytes on the log document itself (CommunicationLog's own
+      // rule: never store raw file contents) - a retry always attaches the
+      // real, current file.
+      const buffer = await getPrivateDocument(log.attachmentStorageKey);
+      attachments = [{ filename: log.attachmentFileName || 'attachment.pdf', content: buffer }];
+    }
+
+    return provider.send({ to: log.to, subject, html, templateKey: log.eventType, attachments });
   }
   if (log.channel === COMMUNICATION_CHANNEL.WHATSAPP) {
     const provider = getWhatsAppProvider();
@@ -54,7 +71,7 @@ async function attemptDelivery(logId) {
     { _id: logId, status: { $in: [COMMUNICATION_STATUS.QUEUED, COMMUNICATION_STATUS.RETRYING] } },
     { $set: { status: COMMUNICATION_STATUS.SENDING, lastAttemptAt: new Date() }, $inc: { attemptCount: 1 } },
     { new: true }
-  );
+  ).select('+attachmentStorageKey');
   if (!claimed) {
     return { claimed: false };
   }
@@ -103,6 +120,9 @@ async function attemptDelivery(logId) {
         resourceId: claimed.order,
         metadata: { channel: claimed.channel, eventType: claimed.eventType, provider: claimed.provider, reason: normalized.message, category: normalized.category },
       });
+      notificationEventsService
+        .notifyEmailFailed(claimed)
+        .catch((notifyErr) => logger.error(`[communicationProcessor] notifyEmailFailed failed: ${notifyErr.message}`));
     }
     return { claimed: true, outcome: claimed.status, error: normalized };
   }

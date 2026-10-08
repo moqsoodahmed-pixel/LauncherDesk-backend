@@ -9,13 +9,29 @@
  */
 const PLACEHOLDER_PATTERN = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
 
-function renderTemplate(template, variables = {}) {
+const HTML_ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function escapeHtml(str) {
+  return str.replace(/[&<>"']/g, (ch) => HTML_ESCAPE_MAP[ch]);
+}
+
+/**
+ * `options.escapeHtml` (default false): when the interpolated value is going
+ * into an HTML document (the email body), caller-supplied values (e.g. a
+ * Client's own `name`, a ticket subject) must be HTML-escaped so a value
+ * like `<script>alert(1)</script>` lands as inert text, not markup, in an
+ * admin- or client-facing email. Left false for plain-text targets (email
+ * subject lines, SMS/WhatsApp bodies) where escaping would wrongly show
+ * literal "&amp;" etc. to the recipient.
+ */
+function renderTemplate(template, variables = {}, options = {}) {
   if (typeof template !== 'string') return '';
+  const shouldEscape = options.escapeHtml === true;
   return template.replace(PLACEHOLDER_PATTERN, (match, key) => {
     if (!Object.prototype.hasOwnProperty.call(variables, key) || variables[key] === undefined || variables[key] === null) {
       return '';
     }
-    return String(variables[key]);
+    const value = String(variables[key]);
+    return shouldEscape ? escapeHtml(value) : value;
   });
 }
 
