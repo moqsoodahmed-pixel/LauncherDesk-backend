@@ -10,6 +10,7 @@ const { Order } = require('../../models/portal');
 const ordersController = require('../../controllers/portal/orders.controller');
 const kycController = require('../../controllers/portal/kyc.controller');
 const { kycFileUpload, handleUploadErrors } = require('../../middleware/portal/kycUpload');
+const { kycUploadLimiter } = require('../../middleware/portal/rateLimiters');
 const paymentController = require('../../controllers/portal/payment.controller');
 const communicationsController = require('../../controllers/portal/communications.controller');
 const { idOnlyValidator, listClientOrdersValidator, createClientOrderValidator, cancelValidator } = require('../../validators/portal/orders.validators');
@@ -53,6 +54,7 @@ router.get('/:id/kyc', orderIdOnlyValidator, validateRequest, loadOwnOrder, kycC
 router.get('/:id/kyc/documents', orderIdOnlyValidator, validateRequest, loadOwnOrder, kycController.listDocuments);
 router.post(
   '/:id/kyc/documents',
+  kycUploadLimiter,
   idOnlyValidator,
   validateRequest,
   loadOwnOrder,

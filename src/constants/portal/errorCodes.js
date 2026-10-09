@@ -21,6 +21,9 @@ const ERROR_CODES = Object.freeze({
   RATE_LIMITED: 'RATE_LIMITED',
   FEATURE_NOT_IMPLEMENTED: 'FEATURE_NOT_IMPLEMENTED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
+  // KYC file-security pipeline addition - a dependent service (virus
+  // scanner) could not be reached, as distinct from a validation failure.
+  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
 });
 
 module.exports = { ERROR_CODES };

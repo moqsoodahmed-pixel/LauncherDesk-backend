@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const StorageProviderInterface = require('./StorageProvider.interface');
 const env = require('../../config/portal');
 const logger = require('../../utils/portal/logger');
@@ -28,6 +29,31 @@ const logger = require('../../utils/portal/logger');
  * scheme change), and avoids ambiguity if a public_id itself ever contained
  * the delimiter character. storageKey stays fully opaque to every caller
  * above documentStorage.service.js either way.
+ *
+ * File-security pipeline hardening pass over this adapter:
+ *  - folder is now 'kyc/clients/documents[/<orderId>]' (keyPrefix-aware,
+ *    see save() below) instead of a flat 'launcherdesk/kyc'.
+ *  - public_id is now an EXPLICIT crypto.randomUUID(), never left to
+ *    Cloudinary's own unique_filename randomization - self-documenting and
+ *    consistent with Local/S3StorageAdapter's own UUID storageKeys.
+ *  - read()'s signed download URL TTL is now SIGNED_URL_EXPIRY (env,
+ *    default 300s) instead of a hardcoded 60s.
+ *  - type: 'authenticated' (never a public/guessable URL) was already
+ *    correct and is unchanged.
+ *  - Replace/delete semantics were audited against kyc.service.js's
+ *    uploadDocument(): a re-upload does NOT delete the previous version's
+ *    Cloudinary asset here, and that is intentional, not an oversight -
+ *    the previous KycDocument row is kept with isCurrentVersion:false and
+ *    its OWN storageKey still pointing at the OLD asset, specifically so
+ *    version history stays downloadable/exportable (see
+ *    listDocuments({includeAllVersions}) and exportOrderKycDocuments). The
+ *    old asset is therefore never "orphaned" (it is still referenced by
+ *    that old row) and is only ever actually deleted later, by
+ *    kycDeletion.service.js's deleteDocumentFile() under the retention
+ *    policy - which already deletes the storage object BEFORE flipping
+ *    lifecycleStatus to DELETED, and leaves the document untouched
+ *    (re-throwing) if the storage delete fails, so that path was already
+ *    orphan-safe and needed no change.
  */
 class CloudinaryStorageAdapter extends StorageProviderInterface {
   constructor() {
@@ -78,22 +104,37 @@ class CloudinaryStorageAdapter extends StorageProviderInterface {
     return parsed;
   }
 
-  async save({ buffer, originalFileName, mimeType }) {
+  /**
+   * `keyPrefix` (e.g. an orderId, server-generated - see
+   * documentStorage.service.js/kyc.service.js, never client-controlled)
+   * places the asset under a per-order subfolder, mirroring
+   * LocalStorageAdapter's own keyPrefix handling. Folder root is
+   * 'kyc/clients/documents' - a clearer, intentional hierarchy than a flat
+   * bucket, and easy to lock down with a single Cloudinary folder-level
+   * access rule if desired.
+   */
+  async save({ buffer, originalFileName, mimeType, keyPrefix }) {
     const cloudinary = this._getClient();
     const resourceType = this._resourceTypeFor(mimeType);
-    const folder = 'launcherdesk/kyc';
+    const safePrefix = keyPrefix ? `/${String(keyPrefix).replace(/[^a-zA-Z0-9_-]/g, '')}` : '';
+    const folder = `kyc/clients/documents${safePrefix}`;
+    // Explicit UUID public_id - never derived from, or containing any part
+    // of, the original filename (use_filename/unique_filename left at
+    // Cloudinary's defaults would still avoid the filename, but an explicit
+    // crypto.randomUUID() is self-documenting and matches the same
+    // generation scheme LocalStorageAdapter/S3StorageAdapter already use).
+    const publicId = crypto.randomUUID();
 
     const result = await new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
         {
           folder,
+          public_id: publicId,
           resource_type: resourceType,
           // 'authenticated' keeps the asset off any guessable public URL -
           // private documents are only ever fetched back through this
           // adapter's read(), never a direct Cloudinary URL.
           type: 'authenticated',
-          use_filename: false,
-          unique_filename: true,
         },
         (err, res) => (err ? reject(err) : resolve(res))
       );
@@ -109,11 +150,12 @@ class CloudinaryStorageAdapter extends StorageProviderInterface {
     const { publicId, resourceType } = this._decodeKey(storageKey);
 
     // Private/'authenticated' assets need a signed URL even for server-side
-    // retrieval - generate one with a short TTL and fetch the bytes through it.
+    // retrieval - generate one with a short, configurable TTL
+    // (SIGNED_URL_EXPIRY, default 300s) and fetch the bytes through it.
     const url = cloudinary.utils.private_download_url(publicId, undefined, {
       resource_type: resourceType,
       type: 'authenticated',
-      expires_at: Math.floor(Date.now() / 1000) + 60,
+      expires_at: Math.floor(Date.now() / 1000) + env.SIGNED_URL_EXPIRY,
     });
 
     const https = require('https');

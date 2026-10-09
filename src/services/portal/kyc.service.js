@@ -1,12 +1,12 @@
 ﻿const mongoose = require('mongoose');
-const { KycDocument, KycVerification, User } = require('../../models/portal');
+const { KycDocument, KycVerification, User, Order } = require('../../models/portal');
 const AppError = require('../../utils/portal/AppError');
 const env = require('../../config/portal');
 const { KYC_DOCUMENT_STATUS } = require('../../constants/portal/kycStatus');
 const { ORDER_STATUS } = require('../../constants/portal/orderStatus');
 const { AUDIT_ACTIONS } = require('../../constants/portal/auditActions');
 const { ROLES } = require('../../constants/portal/roles');
-const { validateFileContent } = require('./fileSignature.service');
+const { validateFileContent, validatePdfStructure } = require('./fileSignature.service');
 const { getAntivirusProvider } = require('../../adapters/antivirus');
 const documentStorage = require('./documentStorage.service');
 const kycState = require('./kycState.service');
@@ -132,13 +132,87 @@ async function uploadDocument({ order, documentType, file, actor, meta = {} }) {
     throw AppError.badRequest(contentCheck.reason);
   }
 
-  // Part 5 addition: a real integration point for virus/malware scanning,
-  // right alongside the existing file-signature check above. The default
+  // File-security pipeline addition: a minimal structural check for PDFs
+  // beyond the magic-byte match above (see fileSignature.service.js's
+  // validatePdfStructure doc-comment for exactly what is and isn't
+  // covered). Runs BEFORE the antivirus scan and BEFORE any storage write -
+  // a structurally invalid/encrypted PDF is rejected outright, no scanner
+  // round-trip needed.
+  if (contentCheck.detectedMimeType === 'application/pdf') {
+    const pdfCheck = validatePdfStructure(file.buffer);
+    if (!pdfCheck.valid) {
+      await logAudit({
+        ...auditCtx(actor),
+        action: AUDIT_ACTIONS.KYC_PDF_VALIDATION_FAILED,
+        resourceType: 'Order',
+        resourceId: order._id,
+        metadata: { documentType, reason: pdfCheck.reason },
+        ...meta,
+      });
+      throw AppError.badRequest(pdfCheck.reason);
+    }
+  }
+
+  // Part 5 addition, hardened: a real integration point for virus/malware
+  // scanning, right alongside the file-signature/PDF-structure checks
+  // above - and, critically, still BEFORE any storage write (see below),
+  // so an infected or unscannable file is never persisted. The default
   // DisabledAntivirusProvider always returns { clean: true }, so current
-  // upload behavior is completely unchanged until a real provider is
-  // configured (see adapters/antivirus/).
-  const scanResult = await getAntivirusProvider().scan(file.buffer);
+  // upload behavior is completely unchanged until ANTIVIRUS_PROVIDER=clamav
+  // is explicitly configured (see adapters/antivirus/).
+  //
+  // Two distinct failure modes, handled differently per the brief:
+  //  - A genuine { clean: false } verdict (malware actually detected) is
+  //    ALWAYS rejected, no matter what STRICT_UPLOAD_SCAN is set to.
+  //  - A thrown SCANNER_UNAVAILABLE (the scanner could not be reached/timed
+  //    out - we never got a real verdict either way) is rejected only in
+  //    STRICT_UPLOAD_SCAN=true environments; otherwise the upload is
+  //    allowed through (fail-open) but a distinct audit entry records that
+  //    the file was never actually scanned, so the gap is never silent.
+  let scanResult;
+  try {
+    scanResult = await getAntivirusProvider().scan(file.buffer);
+  } catch (err) {
+    if (err && err.code === 'SCANNER_UNAVAILABLE') {
+      await logAudit({
+        ...auditCtx(actor),
+        action: AUDIT_ACTIONS.KYC_VIRUS_SCAN_UNAVAILABLE,
+        resourceType: 'Order',
+        resourceId: order._id,
+        metadata: { documentType, strict: env.STRICT_UPLOAD_SCAN, error: err.message },
+        ...meta,
+      });
+      if (env.STRICT_UPLOAD_SCAN) {
+        throw AppError.serviceUnavailable('The document security scanner is currently unavailable. Please try again shortly.');
+      }
+      scanResult = { clean: true, threat: null };
+    } else {
+      // An unexpected provider bug (not a recognized "unavailable"
+      // condition) - never silently treated as a pass.
+      throw err;
+    }
+  }
+
   if (!scanResult.clean) {
+    await logAudit({
+      ...auditCtx(actor),
+      action: AUDIT_ACTIONS.KYC_VIRUS_DETECTED,
+      resourceType: 'Order',
+      resourceId: order._id,
+      metadata: { documentType, threat: scanResult.threat },
+      ...meta,
+    });
+    // Admin-facing alert only - the file is rejected before any storage
+    // write, so there is no persisted KycDocument to reference yet; a
+    // lightweight { documentType } stand-in is enough for both the in-app
+    // notification and the email template. Fire-and-forget, same discipline
+    // as every other post-audit notification/email call in this file.
+    const pseudoDocument = { documentType };
+    notificationEventsService.notifyVirusDetected(order, pseudoDocument).catch(() => {});
+    User.find({ role: ROLES.SUPER_ADMIN, status: 'ACTIVE' })
+      .select('email')
+      .then((admins) => Promise.all(admins.map((a) => communicationService.sendVirusDetected(order, pseudoDocument, a.email).catch(() => {}))))
+      .catch(() => {});
     throw AppError.badRequest('This file failed a security scan and could not be uploaded.');
   }
 
@@ -475,6 +549,13 @@ async function assignReviewer({ documentId, reviewerId, actor, meta = {} }) {
     ...meta,
   });
   await notificationEventsService.notifyKycReviewerAssigned(doc, reviewer, actor._id).catch(() => {});
+  // Wave 2 gap close: this previously only fired the in-app notification
+  // above with no real email (see communication/templates.js's
+  // KYC_REVIEWER_ASSIGNED entry, added alongside this call).
+  const order = await Order.findById(doc.order).select('orderCode _id');
+  if (order) {
+    await communicationService.sendKycReviewerAssigned(order, doc, reviewer).catch(() => {});
+  }
 
   return { id: doc._id, documentType: doc.documentType, assignedReviewer: { id: reviewer._id, name: reviewer.name, email: reviewer.email } };
 }

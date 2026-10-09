@@ -31,6 +31,14 @@ const COMMUNICATION_EVENT = Object.freeze({
 
   DOCUMENT_REQUESTED: 'DOCUMENT_REQUESTED',
   DOCUMENT_FULFILLED: 'DOCUMENT_FULFILLED',
+
+  // Wave 2 addition - see kyc.service.js's assignReviewer(), which
+  // previously only fired an in-app notification with no email.
+  KYC_REVIEWER_ASSIGNED: 'KYC_REVIEWER_ASSIGNED',
+
+  // Phase 11 (smart notification) additions - additive only.
+  ORDER_PAID_AWAITING_ASSIGNMENT: 'ORDER_PAID_AWAITING_ASSIGNMENT',
+  VIRUS_DETECTED: 'VIRUS_DETECTED',
 });
 
 const ALL_COMMUNICATION_EVENTS = Object.values(COMMUNICATION_EVENT);

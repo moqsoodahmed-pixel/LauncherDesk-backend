@@ -169,6 +169,31 @@ async function archiveAllRead(userId) {
   return { modifiedCount: result.modifiedCount };
 }
 
+/**
+ * Phase 11 addition: marks every unresolved notification of `type` for
+ * `orderId` as resolved. Scoped to a specific order AND a specific
+ * notification type deliberately - never a blanket update across all
+ * notifications for the order (e.g. a resolved KYC_REJECTED notification
+ * is a different thing entirely and must never be touched here).
+ *
+ * Matched on `relatedResourceId` (not the `order` field): notifications
+ * fanned out via notifySuperAdmins() (notificationEvents.service.js) -
+ * which is how ORDER_PAID_AWAITING_ASSIGNMENT is created - only ever set
+ * relatedResourceType/relatedResourceId, never the separate `order` ref
+ * field (confirmed by reading every existing notifySuperAdmins call site;
+ * none of them pass `order`). Matching on `order` here would silently
+ * resolve nothing, which is exactly the bug a live test against real
+ * MongoDB data caught during this change.
+ */
+async function resolveNotificationsForOrder(orderId, type) {
+  if (!orderId || !type) return { modifiedCount: 0 };
+  const result = await Notification.updateMany(
+    { relatedResourceType: 'Order', relatedResourceId: orderId, type, resolved: { $ne: true } },
+    { $set: { resolved: true, resolvedAt: new Date() } }
+  );
+  return { modifiedCount: result.modifiedCount };
+}
+
 function serializeNotification(n) {
   return {
     id: n._id,
@@ -196,5 +221,6 @@ module.exports = {
   markAllAsRead,
   archiveNotification,
   archiveAllRead,
+  resolveNotificationsForOrder,
   serializeNotification,
 };

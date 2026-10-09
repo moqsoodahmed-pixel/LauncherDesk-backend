@@ -273,6 +273,48 @@ async function sendKycVerified(order) {
   await dispatchCommunicationEvent({ eventType: COMMUNICATION_EVENT.KYC_VERIFIED, channel: COMMUNICATION_CHANNEL.WHATSAPP, to: order.clientSnapshot?.phone, order, variables: vars });
 }
 
+/** Wave 2 addition: closes the gap where assignReviewer() only had an in-app notification. Mirrors sendOrderAssigned's internal-only, single-recipient shape. */
+async function sendKycReviewerAssigned(order, document, reviewer) {
+  const vars = {
+    reviewerName: reviewer.name,
+    orderNumber: order.orderCode,
+    documentType: document.documentType,
+    orderUrl: `${env.CLIENT_URL}/admin/orders/${order._id}`,
+  };
+  await dispatchCommunicationEvent({
+    eventType: COMMUNICATION_EVENT.KYC_REVIEWER_ASSIGNED,
+    channel: COMMUNICATION_CHANNEL.EMAIL,
+    to: reviewer.email,
+    order,
+    variables: vars,
+    idempotencySuffix: `${document._id}:${reviewer._id}`,
+  });
+}
+
+/**
+ * Phase 11 addition: admin-facing-only alert for a detected virus/malware
+ * upload - never sent to the client who uploaded the file. Not yet wired
+ * to a real call site (the scan itself lives in kyc.service.js's upload
+ * path, out of scope for this change - owned by a parallel AV/storage
+ * workstream); ready for that workstream to call once a scan reports
+ * !clean.
+ */
+async function sendVirusDetected(order, document, toEmail) {
+  const vars = {
+    orderNumber: order?.orderCode || 'unknown',
+    documentType: document?.documentType || 'document',
+    orderUrl: order?._id ? `${env.CLIENT_URL}/admin/orders/${order._id}` : env.CLIENT_URL,
+  };
+  await dispatchCommunicationEvent({
+    eventType: COMMUNICATION_EVENT.VIRUS_DETECTED,
+    channel: COMMUNICATION_CHANNEL.EMAIL,
+    to: toEmail,
+    order,
+    variables: vars,
+    idempotencySuffix: `virus:${document?._id}:${Date.now()}`,
+  });
+}
+
 async function sendPaymentRefunded(order, { amountPaise } = {}) {
   const vars = {
     clientName: order.clientSnapshot?.name,
@@ -416,6 +458,8 @@ module.exports = {
   sendDocumentRequested,
   sendDocumentFulfilled,
   sendKycVerified,
+  sendKycReviewerAssigned,
+  sendVirusDetected,
   sendPaymentRefunded,
   sendClientWelcome,
   sendAdminCreated,

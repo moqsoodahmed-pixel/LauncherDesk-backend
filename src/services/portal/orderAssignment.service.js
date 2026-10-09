@@ -1,6 +1,7 @@
 ﻿const { Order, OrderAssignmentHistory } = require('../../models/portal');
 const AppError = require('../../utils/portal/AppError');
 const { AUDIT_ACTIONS } = require('../../constants/portal/auditActions');
+const { ORDER_PAYMENT_STATUS } = require('../../constants/portal/orderPaymentStatus');
 const { logAudit } = require('./auditLog.service');
 // Reused, not duplicated: the same "is this a real, ACTIVE Admin" check
 // Phase 3's Client assignment uses.
@@ -59,6 +60,29 @@ async function assignOrder({ order, adminId, actor, reason = null, meta = {} }) 
     await notificationEventsService.notifyOrderReassigned(order, admin, actor._id).catch(() => {});
   } else {
     await notificationEventsService.notifyOrderAssigned(order, admin, actor._id).catch(() => {});
+  }
+
+  // Phase 11 (smart notification) escalation: this is the specific
+  // "paid-then-later-assigned" sequence - an order that was ALREADY paid
+  // before it ever had an admin now finally gets one. Gated on
+  // `!isReassignment` deliberately: an order that already had an admin by
+  // definition never had an open ORDER_PAID_AWAITING_ASSIGNMENT alert to
+  // resolve, so a later reassignment is normal churn, not this escalation
+  // - and must never re-fire "You have been assigned a new paid client
+  // order." on every reassignment. An order assigned BEFORE payment ever
+  // completed never reaches here either (paymentStatus won't be PAID yet)
+  // - that stays on the normal, unchanged notifyOrderAssigned() path above.
+  if (!isReassignment && order.paymentStatus === ORDER_PAYMENT_STATUS.PAID) {
+    const { modifiedCount } = await notificationEventsService.resolvePaidAwaitingAssignment(order._id).catch(() => ({ modifiedCount: 0 }));
+    await notificationEventsService.notifyAdminAssignedPaidOrder(order, admin).catch(() => {});
+    await logAudit({
+      actor: actor._id,
+      actorRole: actor.role,
+      action: AUDIT_ACTIONS.ORDER_ASSIGNMENT_RESOLVED_PENDING_NOTIFICATION,
+      resourceType: 'Order',
+      resourceId: order._id,
+      metadata: { orderCode: order.orderCode, newAdmin: String(admin._id), resolvedNotificationCount: modifiedCount },
+    });
   }
 
   return order;

@@ -46,6 +46,19 @@ const NOTIFICATION_EVENT = Object.freeze({
   SUPPORT_TICKET_CREATED: 'SUPPORT_TICKET_CREATED',
   INVOICE_GENERATION_FAILED: 'INVOICE_GENERATION_FAILED',
   EMAIL_DELIVERY_FAILED: 'EMAIL_DELIVERY_FAILED',
+
+  // Phase 11 (smart notification) additions - additive only.
+  // Fired to Super Admins when a payment is confirmed on an order with no
+  // assigned admin; "resolved" once an admin is actually assigned (see
+  // Notification.model.js's resolved/resolvedAt fields).
+  ORDER_PAID_AWAITING_ASSIGNMENT: 'ORDER_PAID_AWAITING_ASSIGNMENT',
+  // Fired to the admin when they are assigned to an order that was ALREADY
+  // paid at assignment time - distinct from the generic ORDER_ASSIGNED
+  // event, which fires for every assignment regardless of payment state.
+  ORDER_PAID_ADMIN_ASSIGNED: 'ORDER_PAID_ADMIN_ASSIGNED',
+  // Admin-facing only - a detected virus/malware upload is an internal
+  // security event, never surfaced to the client who uploaded it.
+  VIRUS_DETECTED: 'VIRUS_DETECTED',
 });
 
 const ALL_NOTIFICATION_EVENTS = Object.values(NOTIFICATION_EVENT);

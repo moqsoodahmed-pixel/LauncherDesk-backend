@@ -113,7 +113,7 @@ async function getKycStats() {
   const startOfWeek = new Date(today);
   startOfWeek.setDate(today.getDate() - today.getDay());
 
-  const [counts, verifiedToday, verifiedWeek, avgTime, documentTypeAgg, businessTypeAgg] = await Promise.all([
+  const [counts, verifiedToday, verifiedWeek, avgTime, documentTypeAgg, businessTypeAgg, unassigned] = await Promise.all([
     KycDocument.aggregate([
       { $match: base },
       { $group: { _id: '$status', count: { $sum: 1 } } },
@@ -145,6 +145,15 @@ async function getKycStats() {
       { $group: { _id: { $ifNull: ['$clientDoc.businessType', 'UNSPECIFIED'] }, count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]),
+    // Frontend (super-admin/admin KycListPage.jsx) stat tile addition: how
+    // many documents still awaiting a decision (UPLOADED/UNDER_REVIEW) have
+    // no reviewer assigned yet - this previously had no backing field and
+    // always rendered '-' on both KYC list pages.
+    KycDocument.countDocuments({
+      ...base,
+      status: { $in: [KYC_DOCUMENT_STATUS.UPLOADED, KYC_DOCUMENT_STATUS.UNDER_REVIEW] },
+      assignedReviewer: null,
+    }),
   ]);
 
   const byStatus = {};
@@ -171,6 +180,7 @@ async function getKycStats() {
     avgTurnaroundHours: Math.round(avgMs / 360000) / 10, // one decimal place
     byDocumentType: documentTypeAgg.map((d) => ({ documentType: d._id, count: d.count })),
     byBusinessType: businessTypeAgg.map((d) => ({ businessType: d._id, count: d.count })),
+    unassigned,
   };
 }
 

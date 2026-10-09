@@ -34,6 +34,19 @@ const notificationSchema = new Schema(
     readAt: { type: Date, default: null },
     expiresAt: { type: Date, default: null }, // optional TTL - notifications only, never audit logs
 
+    // Phase 11 addition: a BUSINESS-level outcome, distinct from isRead/
+    // isArchived (both per-recipient UI state only). Some notifications
+    // (e.g. ORDER_PAID_AWAITING_ASSIGNMENT, fanned out to every Super
+    // Admin) represent an open operational gap that is only truly closed
+    // by someone taking the real action elsewhere (assigning an admin) -
+    // that closure must apply to every recipient's copy at once, which
+    // isRead/isArchived (set per-recipient by that recipient's own UI
+    // actions) cannot model. Defaults to unresolved; only ever flipped by
+    // server-side business logic (e.g. orderAssignment.service.js), never
+    // by a user directly marking a notification read/archived.
+    resolved: { type: Boolean, default: false, index: true },
+    resolvedAt: { type: Date, default: null },
+
     // Deterministic per-logical-notification key (type:relatedResourceId:recipient[:suffix])
     // so the same business event dispatched twice (e.g. a retried webhook)
     // never creates a duplicate notification, while two DIFFERENT events of

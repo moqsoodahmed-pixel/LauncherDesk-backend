@@ -91,6 +91,13 @@ const AUDIT_ACTIONS = Object.freeze({
   KYC_COMMENT_ADDED: 'KYC_COMMENT_ADDED',
   KYC_BULK_EXPORTED: 'KYC_BULK_EXPORTED',
 
+  // File-security pipeline additions (antivirus + PDF structural validation).
+  // All additive - never replace an existing action, never change today's
+  // behavior for anyone who hasn't opted into ANTIVIRUS_PROVIDER=clamav.
+  KYC_VIRUS_DETECTED: 'KYC_VIRUS_DETECTED', // a real { clean: false } verdict from the scanner - upload always rejected
+  KYC_VIRUS_SCAN_UNAVAILABLE: 'KYC_VIRUS_SCAN_UNAVAILABLE', // scanner unreachable/timed out - metadata.strict says whether the upload was rejected or allowed through
+  KYC_PDF_VALIDATION_FAILED: 'KYC_PDF_VALIDATION_FAILED', // structurally malformed or encrypted PDF rejected before storage
+
   SERVICE_CREATED: 'SERVICE_CREATED',
   SERVICE_UPDATED: 'SERVICE_UPDATED',
   SERVICE_STATUS_CHANGED: 'SERVICE_STATUS_CHANGED',
@@ -115,6 +122,13 @@ const AUDIT_ACTIONS = Object.freeze({
   TASK_CANCELLED: 'TASK_CANCELLED',
 
   SECURITY_EVENT: 'SECURITY_EVENT',
+
+  // Phase 11 (smart notification) additions - additive only.
+  ORDER_PAID_AWAITING_ASSIGNMENT: 'ORDER_PAID_AWAITING_ASSIGNMENT',
+  ORDER_ASSIGNMENT_RESOLVED_PENDING_NOTIFICATION: 'ORDER_ASSIGNMENT_RESOLVED_PENDING_NOTIFICATION',
+  // KYC_VIRUS_DETECTED itself is already defined above (file-security
+  // pipeline additions) by the parallel AV workstream - reused as-is, not
+  // duplicated here.
 });
 
 module.exports = { AUDIT_ACTIONS };

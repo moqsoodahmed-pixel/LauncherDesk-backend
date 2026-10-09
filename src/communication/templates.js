@@ -314,6 +314,45 @@ const TEMPLATES = {
       },
     },
   },
+
+  // Wave 2 addition: assignReviewer() previously only fired an in-app
+  // notification (notifyKycReviewerAssigned) with no email - this closes
+  // that gap, mirroring ORDER_ASSIGNED's internal-only shape exactly.
+  [COMMUNICATION_EVENT.KYC_REVIEWER_ASSIGNED]: {
+    allowedVariables: ['reviewerName', 'orderNumber', 'documentType', 'orderUrl'],
+    channels: {
+      email: {
+        subject: 'KYC document assigned to you - order {{orderNumber}}',
+        html: '<p>Hi {{reviewerName}},</p><p>A {{documentType}} document for order <strong>{{orderNumber}}</strong> has been assigned to you for review.</p><p><a href="{{orderUrl}}">Review document</a></p>',
+      },
+    },
+  },
+
+  // Phase 11 (smart notification): the CTO direct-email escalation - see
+  // notificationEvents.service.js's notifySuperAdminsOrderPaidAwaitingAssignment().
+  // Internal-only, sent to an operator-configured address, never to a client.
+  [COMMUNICATION_EVENT.ORDER_PAID_AWAITING_ASSIGNMENT]: {
+    allowedVariables: ['orderNumber', 'orderUrl'],
+    channels: {
+      email: {
+        subject: 'Action needed: paid order {{orderNumber}} has no assigned admin',
+        html: '<p>New paid order is waiting for admin assignment.</p><p>Order <strong>{{orderNumber}}</strong> has been paid but has no admin assigned yet.</p><p><a href="{{orderUrl}}">Open order</a></p>',
+      },
+    },
+  },
+
+  // Admin-facing only - never sent to the client who uploaded the file.
+  // Not yet wired to a real call site (see kyc.service.js's upload path,
+  // out of scope for this change); ready for the AV/storage workstream.
+  [COMMUNICATION_EVENT.VIRUS_DETECTED]: {
+    allowedVariables: ['orderNumber', 'documentType', 'orderUrl'],
+    channels: {
+      email: {
+        subject: 'Security alert: virus detected in an upload - order {{orderNumber}}',
+        html: '<p>A file upload for order <strong>{{orderNumber}}</strong> ({{documentType}}) failed a security scan and was blocked.</p><p><a href="{{orderUrl}}">Open order</a></p>',
+      },
+    },
+  },
 };
 
 function getTemplate(eventType) {

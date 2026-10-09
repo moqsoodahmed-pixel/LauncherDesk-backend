@@ -58,6 +58,30 @@ const env = {
   OCR_PROVIDER: required('OCR_PROVIDER', 'disabled'),
   ANTIVIRUS_PROVIDER: required('ANTIVIRUS_PROVIDER', 'disabled'),
 
+  // File-security pipeline additions. ClamAV connection details - only
+  // consulted when ANTIVIRUS_PROVIDER=clamav; sane local-daemon defaults.
+  CLAMAV_HOST: required('CLAMAV_HOST', '127.0.0.1'),
+  CLAMAV_PORT: parseInt(required('CLAMAV_PORT', '3310'), 10),
+  CLAMAV_TIMEOUT_MS: parseInt(required('CLAMAV_TIMEOUT_MS', '5000'), 10),
+
+  // Strict-mode policy for when the antivirus scanner cannot be reached at
+  // all (distinct from a real FOUND/infected verdict, which is ALWAYS
+  // rejected regardless of this flag). Defaults to 'false' (fail-open, i.e.
+  // allow the upload through with an audit trail) so an operator who hasn't
+  // set up a scanner yet sees no behavior change; set true in any
+  // environment where an unscannable upload must never be accepted.
+  STRICT_UPLOAD_SCAN: required('STRICT_UPLOAD_SCAN', 'false') === 'true',
+
+  // Cloudinary signed download URL TTL (seconds) - documents are stored
+  // 'authenticated' (never a public/guessable URL), so every read goes
+  // through a freshly-signed, short-lived URL.
+  SIGNED_URL_EXPIRY: parseInt(required('SIGNED_URL_EXPIRY', '300'), 10),
+
+  // Per-route rate limit specifically for the KYC document upload endpoint
+  // (separate from, and stacked on top of, the general /api/portal limiter).
+  KYC_UPLOAD_RATE_LIMIT_WINDOW_MS: parseInt(required('KYC_UPLOAD_RATE_LIMIT_WINDOW_MS', '900000'), 10),
+  KYC_UPLOAD_RATE_LIMIT_MAX: parseInt(required('KYC_UPLOAD_RATE_LIMIT_MAX', '20'), 10),
+
   RETENTION_DAYS: parseInt(required('RETENTION_DAYS', '30'), 10),
   BCRYPT_ROUNDS: parseInt(required('BCRYPT_ROUNDS', '12'), 10),
   MAX_KYC_FILE_SIZE_MB: parseInt(required('PORTAL_MAX_KYC_FILE_SIZE_MB', required('MAX_KYC_FILE_SIZE_MB', '10')), 10),

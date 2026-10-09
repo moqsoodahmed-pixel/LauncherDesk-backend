@@ -15,4 +15,12 @@ function getWhatsAppProvider() {
   return new DevelopmentWhatsAppProvider();
 }
 
-module.exports = { getWhatsAppProvider };
+// Same provider classes handle both channels (MSG91Provider/
+// DevelopmentWhatsAppProvider both implement sendSms() already) - this is
+// a second accessor for the identical instance-selection logic, not a
+// second provider hierarchy. Previously missing entirely, which crashed
+// every SMS-channel dispatch (e.g. the ORDER_PAYMENT_CONFIRMED SMS) with
+// "getSmsProvider is not a function" - confirmed via real failed
+// CommunicationLog/notification records from live payment-confirmation
+// activity during QA.
+module.exports = { getWhatsAppProvider, getSmsProvider: getWhatsAppProvider };

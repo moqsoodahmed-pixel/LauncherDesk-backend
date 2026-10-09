@@ -15,12 +15,27 @@ const { ERROR_CODES } = require('../../constants/portal/errorCodes');
 function errorHandler(err, req, res, next) {
   const isAppError = err.isOperational === true;
 
-  const statusCode = isAppError ? err.statusCode : 500;
-  const code = isAppError ? err.code : ERROR_CODES.INTERNAL_ERROR;
-  const message = isAppError ? err.message : 'An unexpected error occurred.';
+  // A malformed id in a route param (e.g. /invoices/not-an-objectid/download)
+  // reaches Mongoose as a CastError when a route queries by _id directly
+  // without a prior isValidObjectId check (some routes validate up front via
+  // the dataScope middleware's loadScoped() and never hit this; others call
+  // the service directly). Treat it the same way loadScoped() treats an
+  // invalid id - a 404, not a 500 - so a malformed/garbage id is
+  // indistinguishable from one that is well-formed but does not exist,
+  // consistent with the "no existence oracle" principle used elsewhere, and
+  // so it never leaks via a 500 instead.
+  const isCastError = !isAppError && (err.name === 'CastError' || err.kind === 'ObjectId');
 
-  // Always log full error server-side so it is never lost
-  if (!isAppError) {
+  const statusCode = isAppError ? err.statusCode : (isCastError ? 404 : 500);
+  const code = isAppError ? err.code : (isCastError ? ERROR_CODES.NOT_FOUND : ERROR_CODES.INTERNAL_ERROR);
+  const message = isAppError ? err.message : (isCastError ? 'Resource not found.' : 'An unexpected error occurred.');
+
+  // Always log full error server-side so it is never lost. A CastError from
+  // a malformed id is routine bad input (not a server fault), so it is
+  // logged at warn rather than error to keep error logs meaningful.
+  if (isCastError) {
+    logger.warn('[errorHandler] Malformed id rejected as not-found:', err.message);
+  } else if (!isAppError) {
     logger.error('[errorHandler] Unhandled error:', err);
   } else if (statusCode >= 500) {
     logger.error('[errorHandler]', err.message, err.stack);

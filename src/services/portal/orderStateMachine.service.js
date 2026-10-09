@@ -104,6 +104,19 @@ async function notifyStatusChange(order, fromStatus, toStatus) {
   }
   if (toStatus === ORDER_STATUS.PAYMENT_CONFIRMED) {
     await notificationEventsService.notifyOrderPaymentConfirmed(order).catch(() => {});
+    // Phase 11 (smart notification): a paid order with no assigned admin
+    // is a genuinely auditable operational gap, not just a notification -
+    // logged here (the single authoritative point payment is confirmed),
+    // separately from the notification itself, which can fail/be
+    // suppressed independently of the audit trail.
+    if (!order.assignedAdmin) {
+      await logAudit({
+        action: AUDIT_ACTIONS.ORDER_PAID_AWAITING_ASSIGNMENT,
+        resourceType: 'Order',
+        resourceId: order._id,
+        metadata: { orderCode: order.orderCode },
+      }).catch(() => {});
+    }
     // Invoice generation only ever happens here, the single authoritative
     // point an order's payment is confirmed - never from the payment
     // controller/webhook directly, so there is exactly one trigger site.

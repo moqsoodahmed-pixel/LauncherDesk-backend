@@ -67,6 +67,11 @@ class AppError extends Error {
   static invalidStateTransition(message = 'This status transition is not allowed.') {
     return new AppError(message, { statusCode: 422, code: ERROR_CODES.INVALID_STATE_TRANSITION });
   }
+
+  /** A required dependent service (e.g. the virus scanner) could not be reached. */
+  static serviceUnavailable(message = 'This service is temporarily unavailable. Please try again shortly.') {
+    return new AppError(message, { statusCode: 503, code: ERROR_CODES.SERVICE_UNAVAILABLE });
+  }
 }
 
 module.exports = AppError;
