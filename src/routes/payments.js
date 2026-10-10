@@ -1,5 +1,5 @@
 const router = require('express').Router()
-const { getConfig, createOrder, verifyPayment, createCheckoutOrder, createTrademarkOrder, createEStampOrder, verifyCheckoutPayment } = require('../controllers/paymentController')
+const { getConfig, createOrder, verifyPayment, createCheckoutOrder, createTrademarkOrder, createEStampOrder, verifyCheckoutPayment, estampCallback } = require('../controllers/paymentController')
 const { body } = require('express-validator')
 const { APPLICANT_TYPES, TRADEMARK } = require('../config/planPrices')
 const { validate, nameValidator, emailValidator, mobileValidator } = require('../middleware/validate')
@@ -61,5 +61,15 @@ router.post('/checkout/estamp/create-order', protect, [
 ], validate, createEStampOrder)
 
 router.post('/checkout/verify', verifyCheckoutPayment)
+
+// Public — hit directly by Razorpay as a browser form-post redirect (mobile
+// "redirect: true" checkout mode, see lib/razorpay.js's isPhone branch).
+// The handler (controllers/paymentController.js's estampCallback) already
+// existed, fully implemented, but was never wired to a route — meaning the
+// phone-only full-page-checkout payment flow 404'd on return from Razorpay
+// for every mobile customer, even though the desktop/tablet iframe-popup
+// flow (which never hits this endpoint) worked fine. Mobile-only gap, now
+// closed; no other device's payment path is affected by this route.
+router.post('/checkout/estamp/callback', estampCallback)
 
 module.exports = router
