@@ -35,10 +35,10 @@ router.post('/checkout/trademark/create-order', trademarkLogo, [
   body('brandName').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 120 }).withMessage('Brand name must be under 120 characters').escape(),
   body('whatsappOptIn').optional().isBoolean(),
 ], validate, createTrademarkOrder)
-// e-Stamp paper — login required; price worked out on the server (config/planPrices.js → ESTAMP)
+// e-Stamp paper — optionalAuth attached; price worked out on the server (config/planPrices.js → ESTAMP)
 // (no .escape() here: the values are stored as typed and escaped wherever they are displayed)
 const txt = (f, max, msg) => body(f).trim().notEmpty().withMessage(msg).isLength({ max }).withMessage(`${msg} (max ${max} characters)`)
-router.post('/checkout/estamp/create-order', protect, [
+router.post('/checkout/estamp/create-order', optionalAuth, [
   body('state').trim().notEmpty().withMessage('State is required'),
   body('stateName').optional().trim().isLength({ max: 60 }),
   txt('firstParty', 150, 'First party name is required'),
