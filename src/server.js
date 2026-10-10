@@ -110,8 +110,20 @@ const globalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many requests. Please try again later.' },
-  // Portal routes keep the Portal's own limiter (RATE_LIMIT_MAX, default 300) — see below.
-  skip: (req) => req.originalUrl.startsWith('/api/portal'),
+  // Portal routes keep the Portal's own limiter (RATE_LIMIT_MAX, default 300).
+  // Payments already have their own dedicated, separate limiter further
+  // below (`paymentLimiter`, 30/15min) — but until this fix, that limiter
+  // ran IN ADDITION TO this one, not instead of it, so payment requests
+  // were still also counted against this shared, site-wide 200/15min
+  // budget. On Indian mobile networks many genuinely different customers
+  // share one carrier-assigned public IP (CGNAT), so unrelated site
+  // browsing from other customers on the same IP could exhaust this
+  // budget and block a mobile customer's checkout before they ever came
+  // close to their own 30-request payment-specific limit — a real,
+  // mobile-disproportionate failure mode a desktop/broadband user would
+  // almost never hit. Payments are now exempt here and rely solely on
+  // their own dedicated limiter.
+  skip: (req) => req.originalUrl.startsWith('/api/portal') || req.originalUrl.startsWith('/api/payments'),
 })
 app.use('/api/', globalLimiter)
 
