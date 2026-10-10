@@ -16,7 +16,7 @@ const userSchema = new mongoose.Schema(
     // ── OAuth providers ───────────────────────────────────────────────────────
     googleId: { type: String, sparse: true },
     microsoftId: { type: String, sparse: true },
-    authProvider: { type: String, enum: ['local', 'google', 'microsoft'], default: 'local' },
+    authProvider: { type: String, enum: ['local', 'google', 'microsoft', 'portal'], default: 'local' },
     avatar: { type: String },
 
     // ── Password reset ────────────────────────────────────────────────────────
