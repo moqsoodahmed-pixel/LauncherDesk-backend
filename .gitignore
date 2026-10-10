@@ -50,6 +50,18 @@ Reports/
 test_*.pdf
 *-Audit-Report.pdf
 
+# Proof screenshots & test images
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+!src/assets/**
+!public/**
+*_proof.*
+*_result.*
+*_screenshot.*
+
 # OS & Editor
 .DS_Store
 Thumbs.db

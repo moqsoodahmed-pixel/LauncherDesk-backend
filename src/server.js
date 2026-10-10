@@ -160,9 +160,17 @@ const paymentLimiter = rateLimit({
 app.use('/api/payments', paymentLimiter)
 
 /* ── Health + database guard ──────────────────────────────────────────── */
+// `commit` lets anyone confirm, from a plain GET request, exactly which
+// backend commit is actually running — a build/deploy can report "success"
+// while still serving stale code (wrong branch, cached layer, a second
+// service not redeployed), and that's indistinguishable from "the fix
+// didn't work" without this. Picks up whatever the host sets (Railway,
+// Render, Vercel all set one of these); 'unknown' if none is present
+// (e.g. local dev), never a hard failure.
+const DEPLOYED_COMMIT = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || process.env.SOURCE_VERSION || process.env.GIT_COMMIT || 'unknown'
 app.get('/api/health', (_req, res) => {
   const db = connectDB.isDbReady() ? 'connected' : 'disconnected'
-  res.status(db === 'connected' ? 200 : 503).json({ success: db === 'connected', status: 'LauncherDesk API is running', database: db, timestamp: new Date() })
+  res.status(db === 'connected' ? 200 : 503).json({ success: db === 'connected', status: 'LauncherDesk API is running', database: db, commit: DEPLOYED_COMMIT, timestamp: new Date() })
 })
 
 // While MongoDB is unreachable, answer immediately with a clear JSON error (CORS headers

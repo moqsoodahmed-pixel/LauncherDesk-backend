@@ -14,6 +14,7 @@ jest.mock('../middleware/auth', () => ({
     if (req.headers.authorization !== 'Bearer ok') return res.status(401).json({ success: false, message: 'Not authorised' })
     req.user = { _id: 'u9', name: 'Asha Rao', email: 'asha@gmail.com' }; next()
   },
+  optionalAuth: (req, _res, next) => next(),
   restrictTo: () => (_req, _res, next) => next(),
 }))
 jest.mock('../models/Payment', () => ({

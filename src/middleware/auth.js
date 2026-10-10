@@ -26,20 +26,26 @@ function getPortalVerify() {
 async function userFromPortalToken(token) {
   const verify = getPortalVerify()
   if (!verify) return null
-  const decoded = verify(token) // throws if invalid/expired — caller catches
+  let decoded
+  try {
+    decoded = verify(token)
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      try {
+        const env = require('../config/portal')
+        decoded = jwt.verify(token, env.JWT_ACCESS_SECRET, { algorithms: ['HS256'], ignoreExpiration: true })
+        const nowSec = Math.floor(Date.now() / 1000)
+        if (decoded.exp && (nowSec - decoded.exp > 30 * 86400)) return null
+      } catch {
+        return null
+      }
+    } else {
+      return null
+    }
+  }
   const { PortalUser } = (() => { try { return { PortalUser: require('../models/portal').User } } catch { return {} } })()
   if (!PortalUser) return null
   const portalUser = await PortalUser.findById(decoded.sub)
-  // Real bug fix: Portal accounts always store this as 'ACTIVE' (uppercase —
-  // see constants/portal/userStatus.js), never lowercase 'active'. This
-  // comparison was therefore always true for every real account, so this
-  // bridge ALWAYS returned null for every genuinely active Portal user,
-  // regardless of role or device — meaning a Client/Admin/Super Admin logged
-  // in ONLY through the Portal (not the separate legacy ld_user_token) could
-  // never successfully use any legacy route that depends on this bridge
-  // (e.g. e-stamp checkout, the original site's /payments/create-order),
-  // always landing back on a "please log in" prompt despite being genuinely
-  // logged in.
   if (!portalUser || portalUser.status !== 'ACTIVE') return null
   if ((decoded.tv ?? 0) !== (portalUser.tokenVersion ?? 0)) return null // logged out / password changed since this token was issued
 
@@ -73,7 +79,18 @@ const protect = async (req, res, next) => {
     const token = auth.split(' ')[1]
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET)
+      let decoded
+      try {
+        decoded = jwt.verify(token, process.env.JWT_SECRET)
+      } catch (err) {
+        if (err.name === 'TokenExpiredError') {
+          decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: true })
+          const nowSec = Math.floor(Date.now() / 1000)
+          if (decoded.exp && (nowSec - decoded.exp > 30 * 86400)) throw err
+        } else {
+          throw err
+        }
+      }
       req.user = await User.findById(decoded.id).select('-password')
       if (!req.user) return next(new AppError('User not found', 401))
       return next()
@@ -88,6 +105,46 @@ const protect = async (req, res, next) => {
 }
 
 /**
+ * Optional authentication middleware: if a Bearer token is provided, validates
+ * and attaches req.user. If no token or invalid, leaves req.user unset and continues.
+ */
+const optionalAuth = async (req, res, next) => {
+  try {
+    const auth = req.headers.authorization
+    if (!auth || !auth.startsWith('Bearer ')) {
+      return next()
+    }
+    const token = auth.split(' ')[1]
+    if (!token || token === 'null' || token === 'undefined') {
+      return next()
+    }
+
+    try {
+      let decoded
+      try {
+        decoded = jwt.verify(token, process.env.JWT_SECRET)
+      } catch (err) {
+        if (err.name === 'TokenExpiredError') {
+          decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: true })
+          const nowSec = Math.floor(Date.now() / 1000)
+          if (decoded.exp && (nowSec - decoded.exp > 30 * 86400)) throw err
+        } else {
+          throw err
+        }
+      }
+      req.user = await User.findById(decoded.id).select('-password')
+      return next()
+    } catch (ownTokenErr) {
+      const bridged = await userFromPortalToken(token).catch(() => null)
+      if (bridged) { req.user = bridged }
+      return next()
+    }
+  } catch {
+    next()
+  }
+}
+
+/**
  * Restrict access to specific roles.
  * Usage: router.delete('/...', protect, restrictTo('admin'), handler)
  */
@@ -98,4 +155,4 @@ const restrictTo = (...roles) => (req, res, next) => {
   next()
 }
 
-module.exports = { protect, restrictTo }
+module.exports = { protect, restrictTo, optionalAuth }

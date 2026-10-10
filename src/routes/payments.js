@@ -4,12 +4,12 @@ const { body } = require('express-validator')
 const { APPLICANT_TYPES, TRADEMARK } = require('../config/planPrices')
 const { validate, nameValidator, emailValidator, mobileValidator } = require('../middleware/validate')
 // NOTE: POST /api/payments/webhook is mounted directly in server.js (it needs the raw body).
-const { protect } = require('../middleware/auth')
+const { protect, optionalAuth } = require('../middleware/auth')
 const { trademarkLogo } = require('../middleware/trademarkLogo')
 
 router.get('/config', getConfig)
 router.post('/create-order', protect, createOrder)
-router.post('/verify',       protect, verifyPayment)
+router.post('/verify',       optionalAuth, verifyPayment)
 
 // Guest checkout — no login. Price is calculated on the server from serviceSlug + tier.
 router.post('/checkout/create-order', [

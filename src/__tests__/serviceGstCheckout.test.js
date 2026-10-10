@@ -11,6 +11,7 @@ jest.mock('razorpay', () => jest.fn().mockImplementation(() => ({
 })))
 jest.mock('../middleware/auth', () => ({
   protect: (req, _res, next) => { req.user = { _id: 'u1', name: 'Asha', email: 'asha@gmail.com' }; next() },
+  optionalAuth: (req, _res, next) => next(),
 }))
 jest.mock('../models/Payment', () => ({
   create: jest.fn(async (d) => { created.payment = d; return { _id: 'p1', ...d } }),

@@ -100,7 +100,7 @@ exports.verifyPayment = asyncHandler(async (req, res, next) => {
 
   const payment = await Payment.findOne({ razorpayOrderId: razorpay_order_id })
   if (!payment) return next(new AppError('Payment record not found', 404))
-  if (payment.user.toString() !== req.user._id.toString()) return next(new AppError('Not authorised', 403))
+  if (req.user && payment.user && payment.user.toString() !== req.user._id.toString()) return next(new AppError('Not authorised', 403))
 
   const body     = `${razorpay_order_id}|${razorpay_payment_id}`
   const expected = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(body).digest('hex')
@@ -109,7 +109,7 @@ exports.verifyPayment = asyncHandler(async (req, res, next) => {
   if (!sigOk) {
     // Don't mark the payment failed here — a tampered browser request must not override
     // the real state. The Razorpay webhook remains the source of truth.
-    console.warn(`[Payment] Signature mismatch on verify: ${razorpay_order_id} by ${req.user.email}`)
+    console.warn(`[Payment] Signature mismatch on verify: ${razorpay_order_id} by ${req.user ? req.user.email : 'guest'}`)
     return next(new AppError('Payment verification failed — please contact support', 400))
   }
 
@@ -342,19 +342,20 @@ exports.createEStampOrder = asyncHandler(async (req, res, next) => {
   }
 
   const razorpay = getRazorpay()
+  const user = req.user || (await findOrCreateCustomer({ name: b.name, email: b.email, phone: b.mobile, city: b.city || '' }))
   const order = await razorpay.orders.create({
     amount: price.totalPaise,
     currency: 'INR',
     receipt: `ld_${Date.now()}`,
     notes: {
-      userId: req.user._id.toString(), userName: b.name, userEmail: b.email, userPhone: b.mobile,
+      userId: user._id.toString(), userName: b.name, userEmail: b.email, userPhone: b.mobile,
       serviceSlug: orderSlug, serviceTitle, state: stateName, stampDuty: String(duty),
       firstParty: String(b.firstParty).slice(0, 200), secondParty: String(b.secondParty).slice(0, 200),
     },
   })
 
   const payment = await Payment.create({
-    user: req.user._id,
+    user: user._id,
     razorpayOrderId: order.id,
     serviceSlug: orderSlug,
     serviceTitle,
@@ -368,7 +369,7 @@ exports.createEStampOrder = asyncHandler(async (req, res, next) => {
   })
 
   const ldOrder = await require('../services/orderService').createOrder({
-    userId: req.user._id, serviceSlug: orderSlug, serviceTitle, amount: order.amount / 100, paymentId: payment._id,
+    userId: user._id, serviceSlug: orderSlug, serviceTitle, amount: order.amount / 100, paymentId: payment._id,
   })
   await Payment.updateOne({ _id: payment._id }, { order: ldOrder._id })
   await require('../models/ServiceOrder').updateOne({ _id: ldOrder._id }, {
@@ -376,7 +377,7 @@ exports.createEStampOrder = asyncHandler(async (req, res, next) => {
     govtFee: price.dutyPaise / 100, totalAmount: price.totalPaise / 100, details,
   })
 
-  console.log(`[Payment] e-Stamp order created: ${order.id} — ${ldOrder.orderNumber} — ₹${order.amount / 100} — ${req.user.email} — ${stateName}, duty ₹${duty}`)
+  console.log(`[Payment] e-Stamp order created: ${order.id} — ${ldOrder.orderNumber} — ₹${order.amount / 100} — ${user.email} — ${stateName}, duty ₹${duty}`)
 
   res.json({
     success: true,
