@@ -390,6 +390,41 @@ exports.createEStampOrder = asyncHandler(async (req, res, next) => {
   })
 })
 
+// POST /api/payments/checkout/estamp/callback — public, hit by Razorpay itself.
+// Used on phones, where the checkout pop-up can fail to appear: the app sends the customer to
+// Razorpay's full-page checkout (redirect mode) and Razorpay POSTs the result here, as a browser
+// form post. We verify the signature (same proof as /verify), mark the order paid, then send the
+// customer back to the e-stamp page, which shows the success / failure state.
+exports.estampCallback = asyncHandler(async (req, res) => {
+  const site = (process.env.CLIENT_URL || 'https://launcherdesk.com').split(',')[0].trim().replace(/\/$/, '')
+  const b = req.body || {}
+  const back = (q) => res.redirect(303, `${site}/estamp/${encodeURIComponent(q.state || '')}?${new URLSearchParams(q.params).toString()}`)
+
+  const orderId = b.razorpay_order_id
+  const payment = orderId ? await Payment.findOne({ razorpayOrderId: orderId }) : null
+  const state = String(req.query.state || '').replace(/[^a-z0-9-]/gi, '')
+
+  if (!payment || !b.razorpay_payment_id || !b.razorpay_signature) {
+    const msg = (b.error && (b.error.description || b.error['description'])) || b['error[description]'] || "The payment didn't go through. No money was taken; you can try again."
+    return back({ state, params: { payfail: String(msg).slice(0, 200) } })
+  }
+
+  const expected = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+    .update(`${orderId}|${b.razorpay_payment_id}`).digest('hex')
+  const given = String(b.razorpay_signature)
+  const sigOk = expected.length === given.length && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(given))
+  if (!sigOk) {
+    console.warn(`[Payment] Signature mismatch on estamp callback: ${orderId}`)
+    return back({ state, params: { payfail: "We couldn't confirm your payment. If money was deducted, please contact support@launcherdesk.com." } })
+  }
+
+  const { order } = await require('../services/paymentService').markPaid({
+    razorpayOrderId: orderId, razorpayPaymentId: b.razorpay_payment_id, source: 'customer',
+  })
+  console.log(`[Payment] e-Stamp callback verified: ${b.razorpay_payment_id}`)
+  return back({ state, params: { paid: order?.orderNumber || 'ok', ...(order?._id ? { oid: String(order._id) } : {}) } })
+})
+
 // POST /api/payments/checkout/verify — public; the Razorpay signature is the proof of payment
 exports.verifyCheckoutPayment = asyncHandler(async (req, res, next) => {
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body
