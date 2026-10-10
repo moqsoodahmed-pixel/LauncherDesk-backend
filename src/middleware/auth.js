@@ -30,7 +30,17 @@ async function userFromPortalToken(token) {
   const { PortalUser } = (() => { try { return { PortalUser: require('../models/portal').User } } catch { return {} } })()
   if (!PortalUser) return null
   const portalUser = await PortalUser.findById(decoded.sub)
-  if (!portalUser || portalUser.status !== 'active') return null
+  // Real bug fix: Portal accounts always store this as 'ACTIVE' (uppercase —
+  // see constants/portal/userStatus.js), never lowercase 'active'. This
+  // comparison was therefore always true for every real account, so this
+  // bridge ALWAYS returned null for every genuinely active Portal user,
+  // regardless of role or device — meaning a Client/Admin/Super Admin logged
+  // in ONLY through the Portal (not the separate legacy ld_user_token) could
+  // never successfully use any legacy route that depends on this bridge
+  // (e.g. e-stamp checkout, the original site's /payments/create-order),
+  // always landing back on a "please log in" prompt despite being genuinely
+  // logged in.
+  if (!portalUser || portalUser.status !== 'ACTIVE') return null
   if ((decoded.tv ?? 0) !== (portalUser.tokenVersion ?? 0)) return null // logged out / password changed since this token was issued
 
   const email = String(portalUser.email || '').toLowerCase().trim()

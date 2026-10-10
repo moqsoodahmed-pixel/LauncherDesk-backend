@@ -42,7 +42,7 @@ test('a normal site login still works exactly as before', async () => {
 
 test('a Portal login for an existing customer reaches the SAME account (matched by email)', async () => {
   mockVerifyAccessToken.mockReturnValue({ sub: 'portal-1', tv: 0 })
-  mockPortalUser.findById.mockResolvedValue({ _id: 'portal-1', email: 'Srinivas@Launcherdesk.com', name: 'Srinivas', status: 'active', tokenVersion: 0 })
+  mockPortalUser.findById.mockResolvedValue({ _id: 'portal-1', email: 'Srinivas@Launcherdesk.com', name: 'Srinivas', status: 'ACTIVE', tokenVersion: 0 })
   mockUser.findOne.mockResolvedValue({ _id: 'own-user-9', email: 'srinivas@launcherdesk.com' })
   const r = await call('PORTAL_TOKEN')
   expect(r.status).toBe(200)
@@ -53,7 +53,7 @@ test('a Portal login for an existing customer reaches the SAME account (matched 
 
 test('a Portal login never seen before creates one matching account, not re-created on the next request', async () => {
   mockVerifyAccessToken.mockReturnValue({ sub: 'portal-2', tv: 0 })
-  mockPortalUser.findById.mockResolvedValue({ _id: 'portal-2', email: 'new.customer@gmail.com', name: 'New Customer', phone: '9000000000', status: 'active', tokenVersion: 0 })
+  mockPortalUser.findById.mockResolvedValue({ _id: 'portal-2', email: 'new.customer@gmail.com', name: 'New Customer', phone: '9000000000', status: 'ACTIVE', tokenVersion: 0 })
   mockUser.findOne.mockResolvedValueOnce(null)
   mockUser.create.mockResolvedValue({ _id: 'own-user-new', email: 'new.customer@gmail.com' })
   const r1 = await call('PORTAL_TOKEN_NEW')
@@ -68,14 +68,14 @@ test('a Portal login never seen before creates one matching account, not re-crea
 
 test('a Portal account that was logged out everywhere (tokenVersion bumped) is rejected', async () => {
   mockVerifyAccessToken.mockReturnValue({ sub: 'portal-3', tv: 0 })
-  mockPortalUser.findById.mockResolvedValue({ _id: 'portal-3', email: 'x@x.com', status: 'active', tokenVersion: 5 })
+  mockPortalUser.findById.mockResolvedValue({ _id: 'portal-3', email: 'x@x.com', status: 'ACTIVE', tokenVersion: 5 })
   const r = await call('PORTAL_TOKEN_STALE')
   expect(r.status).toBe(401)
 })
 
 test('a disabled Portal account is rejected even with a valid token', async () => {
   mockVerifyAccessToken.mockReturnValue({ sub: 'portal-4', tv: 0 })
-  mockPortalUser.findById.mockResolvedValue({ _id: 'portal-4', email: 'x@x.com', status: 'disabled', tokenVersion: 0 })
+  mockPortalUser.findById.mockResolvedValue({ _id: 'portal-4', email: 'x@x.com', status: 'DISABLED', tokenVersion: 0 })
   const r = await call('PORTAL_TOKEN_DISABLED')
   expect(r.status).toBe(401)
 })
