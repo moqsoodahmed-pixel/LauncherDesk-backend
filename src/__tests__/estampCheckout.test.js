@@ -39,7 +39,7 @@ const good = {
 }
 const post = (body, auth = 'Bearer ok') => request(app).post(URL).set('Authorization', auth).send(body)
 
-afterEach(() => { pp.ESTAMP.serviceFee = 0; pp.ESTAMP.courierFee = 150 })
+afterEach(() => { pp.ESTAMP.convenienceFee = 0; pp.ESTAMP.procurementFee = 99; pp.ESTAMP.courierFee = 149 })
 
 test('works with authentication or seamless checkout fallback', async () => {
   const r = await post(good, 'Bearer ok')
@@ -47,6 +47,7 @@ test('works with authentication or seamless checkout fallback', async () => {
 })
 
 test('with no fees set, charges exactly the stamp duty and ignores any client amount', async () => {
+  pp.ESTAMP.procurementFee = 0
   const r = await post({ ...good, amount: 1 })
   expect(r.status).toBe(200)
   expect(created.order.amount).toBe(10000)
@@ -56,20 +57,20 @@ test('with no fees set, charges exactly the stamp duty and ignores any client am
   expect(created.so.details).toMatchObject({ kind: 'e-stamp', state: 'Karnataka', firstParty: 'Asha Rao', stampDuty: 100, delivery: 'Email scan only' })
 })
 
-test('courier adds exactly ₹150 (GST included); stamp duty has no GST', async () => {
+test('courier adds the ₹99 procurement charge + ₹149 courier fee, plus 18% GST on fees; stamp duty has no GST', async () => {
   const r = await post({ ...good, stampDuty: 500, delivery: 'courier', address: '12 MG Road', city: 'Bengaluru', pincode: '560001' })
   expect(r.status).toBe(200)
-  // ₹500 duty + ₹150 courier (₹127.12 + ₹22.88 GST) = ₹650
-  expect(r.body.breakdown).toMatchObject({ dutyPaise: 50000, feePaise: 12712, gstPaise: 2288, totalPaise: 65000 })
-  expect(created.order.amount).toBe(65000)
+  // ₹500 duty + ₹99 procurement + ₹149 courier + 18% GST on ₹248 (₹44.64) = ₹792.64
+  expect(r.body.breakdown).toMatchObject({ dutyPaise: 50000, feePaise: 24800, gstPaise: 4464, totalPaise: 79264 })
+  expect(created.order.amount).toBe(79264)
 })
 
-test('a service fee gets 18% GST on top; courier stays ₹150 all-in', async () => {
-  pp.ESTAMP.serviceFee = 199
+test('a convenience fee gets 18% GST on top, alongside the procurement and courier fees', async () => {
+  pp.ESTAMP.convenienceFee = 199
   const r = await post({ ...good, stampDuty: 500, delivery: 'courier', address: '12 MG Road', city: 'Bengaluru', pincode: '560001' })
-  // ₹500 duty + ₹199 + ₹35.82 GST + ₹150 courier = ₹884.82
-  expect(r.body.breakdown).toMatchObject({ dutyPaise: 50000, feePaise: 32612, gstPaise: 5870, totalPaise: 88482 })
-  expect(created.so).toMatchObject({ professionalFee: 326.12, gstAmount: 58.7, govtFee: 500, totalAmount: 884.82 })
+  // ₹500 duty + ₹199 + ₹99 + ₹149 fees (₹447) + 18% GST (₹80.46) = ₹1027.46
+  expect(r.body.breakdown).toMatchObject({ dutyPaise: 50000, feePaise: 44700, gstPaise: 8046, totalPaise: 102746 })
+  expect(created.so).toMatchObject({ professionalFee: 447, gstAmount: 80.46, govtFee: 500, totalAmount: 1027.46 })
   expect(created.so.details.deliveryAddress).toMatchObject({ city: 'Bengaluru', pincode: '560001' })
 })
 

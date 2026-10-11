@@ -11,14 +11,14 @@ const GST_RATE = 0.18
 // Professional fee in rupees, before GST.
 const PLAN_PRICES = {
   'private-limited-company-registration': { Basic: 4999, Standard: 6499, Premium: 11499 },
-  'opc-registration':                     { Basic: 4999, Standard: 6499, Premium: 11499 },
-  'llp-registration':                     { Basic: 4999, Standard: 6499, Premium: 11499 },
+  'opc-registration': { Basic: 4999, Standard: 6499, Premium: 11499 },
+  'llp-registration': { Basic: 4999, Standard: 6499, Premium: 11499 },
 }
 
 const SERVICE_TITLES = {
   'private-limited-company-registration': 'Private Limited Company Registration',
-  'opc-registration':                     'One Person Company Registration',
-  'llp-registration':                     'LLP Registration',
+  'opc-registration': 'One Person Company Registration',
+  'llp-registration': 'LLP Registration',
 }
 
 /** Returns { feePaise, gstPaise, totalPaise, feeRupees } or null if the plan is unknown. */
@@ -89,21 +89,23 @@ function trademarkPrice({ applicantType, classes, classNumbers }) {
 
 /* ── e-Stamp paper ───────────────────────────────────────────────────────────
  * Amount charged online = stamp duty (chosen by the customer, passed through at
- * actual, no GST) + LauncherDesk service fee + courier fee (if doorstep delivery)
- * + 18% GST on LauncherDesk's fees only.
- * ⚠ Set serviceFee / courierFee to your real prices, and keep them in sync with
- *   ESTAMP_FEES in the frontend (src/data/estamp.js), which is display-only.
+ * actual, no GST) + LauncherDesk convenience fee + procurement charge + courier
+ * fee (if doorstep delivery) + 18% GST on LauncherDesk's fees only.
+ * ⚠ Set convenienceFee / procurementFee / courierFee to your real prices, and
+ *   keep them in sync with ESTAMP_FEES in the frontend (src/data/estamp.js),
+ *   which is display-only.
  */
 const ESTAMP = {
-  serviceFee: 0,
-  courierFee: 150,          // doorstep delivery of the original — GST INCLUDED (customer pays exactly ₹150)
+  convenienceFee: 0,
+  procurementFee: 99,
+  courierFee: 149,          // doorstep delivery of the original — GST added on top, like the other fees
   minDuty: 1,
   maxDuty: 100000,
   states: [
-    'andaman-and-nicobar', 'andhra-pradesh', 'arunachal-pradesh', 'assam', 'bihar', 'delhi', 'gujarat', 'haryana',
-    'himachal-pradesh', 'jammu-and-kashmir', 'jharkhand', 'karnataka', 'ladakh', 'madhya-pradesh', 'maharashtra',
-    'manipur', 'meghalaya', 'puducherry', 'punjab', 'rajasthan', 'tamil-nadu', 'telangana', 'uttar-pradesh',
-    'uttarakhand', 'west-bengal',
+    'andaman-and-nicobar', 'andhra-pradesh', 'arunachal-pradesh', 'assam', 'bihar', 'chhattisgarh', 'delhi', 'goa',
+    'gujarat', 'haryana', 'himachal-pradesh', 'jammu-and-kashmir', 'jharkhand', 'karnataka', 'kerala', 'ladakh',
+    'madhya-pradesh', 'maharashtra', 'manipur', 'meghalaya', 'mizoram', 'nagaland', 'puducherry', 'punjab',
+    'rajasthan', 'sikkim', 'tamil-nadu', 'telangana', 'tripura', 'uttar-pradesh', 'uttarakhand', 'west-bengal',
   ],
 }
 
@@ -112,12 +114,8 @@ function estampPrice({ stampDuty, delivery }) {
   const duty = Number(stampDuty)
   if (!Number.isInteger(duty) || duty < ESTAMP.minDuty || duty > ESTAMP.maxDuty) return null
   if (!['email', 'courier'].includes(delivery)) return null
-  // Service fee: GST added on top. Courier: the ₹ amount already includes GST, split out for the invoice.
-  const servicePaise = ESTAMP.serviceFee * 100
-  const courierTotal = delivery === 'courier' ? ESTAMP.courierFee * 100 : 0
-  const courierBase = Math.round(courierTotal / (1 + GST_RATE))
-  const feePaise = servicePaise + courierBase
-  const gstPaise = Math.round(servicePaise * GST_RATE) + (courierTotal - courierBase)
+  const feePaise = (ESTAMP.convenienceFee + ESTAMP.procurementFee + (delivery === 'courier' ? ESTAMP.courierFee : 0)) * 100
+  const gstPaise = Math.round(feePaise * GST_RATE)
   const dutyPaise = duty * 100
   return { dutyPaise, feePaise, gstPaise, totalPaise: dutyPaise + feePaise + gstPaise }
 }

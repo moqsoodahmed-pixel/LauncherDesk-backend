@@ -1,6 +1,6 @@
 const Razorpay = require('razorpay')
-const crypto   = require('crypto')
-const Payment  = require('../models/Payment')
+const crypto = require('crypto')
+const Payment = require('../models/Payment')
 const { asyncHandler, AppError } = require('../middleware/errorHandler')
 
 const isPaymentConfigured = () =>
@@ -11,7 +11,7 @@ const getRazorpay = () => {
     throw new AppError('Payment processing is not yet configured. Please request a quote instead.', 503)
   }
   return new Razorpay({
-    key_id:     process.env.RAZORPAY_KEY_ID,
+    key_id: process.env.RAZORPAY_KEY_ID,
     key_secret: process.env.RAZORPAY_KEY_SECRET,
   })
 }
@@ -21,7 +21,7 @@ exports.getConfig = asyncHandler(async (_req, res) => {
   res.json({
     success: true,
     enabled: isPaymentConfigured(),
-    keyId:   isPaymentConfigured() ? process.env.RAZORPAY_KEY_ID : null,
+    keyId: isPaymentConfigured() ? process.env.RAZORPAY_KEY_ID : null,
   })
 })
 
@@ -39,28 +39,28 @@ exports.createOrder = asyncHandler(async (req, res, next) => {
 
   const razorpay = getRazorpay()
   const order = await razorpay.orders.create({
-    amount:  price.totalPaise,
+    amount: price.totalPaise,
     currency,
     receipt: `ld_${Date.now()}`,
     notes: {
-      userId:       req.user._id.toString(),
-      userName:     req.user.name,
-      userEmail:    req.user.email,
-      serviceSlug:  serviceSlug || '',
+      userId: req.user._id.toString(),
+      userName: req.user.name,
+      userEmail: req.user.email,
+      serviceSlug: serviceSlug || '',
       serviceTitle: serviceTitle || '',
       ...(addGst ? { gstIncluded: String(price.gstPaise / 100) } : {}),
     },
   })
 
   const payment = await Payment.create({
-    user:            req.user._id,
+    user: req.user._id,
     razorpayOrderId: order.id,
-    serviceSlug:     serviceSlug || '',
-    serviceTitle:    serviceTitle || '',
-    amountPaise:     order.amount,
-    amountRupees:    order.amount / 100,
+    serviceSlug: serviceSlug || '',
+    serviceTitle: serviceTitle || '',
+    amountPaise: order.amount,
+    amountRupees: order.amount / 100,
     currency,
-    status:          'created',
+    status: 'created',
     // Saved so the invoice shows GST on its own line (see services/invoiceService.js).
     ...(addGst ? { breakdown: { feePaise: price.feePaise, gstPaise: price.gstPaise, totalPaise: price.totalPaise } } : {}),
   })
@@ -79,15 +79,15 @@ exports.createOrder = asyncHandler(async (req, res, next) => {
   console.log(`[Payment] Order created: ${order.id} — ${ldOrder.orderNumber} — ₹${order.amount / 100}${addGst ? ' (incl. GST)' : ''} — ${req.user.email} — ${serviceSlug}`)
 
   res.json({
-    success:     true,
-    orderId:     order.id,
+    success: true,
+    orderId: order.id,
     paymentDbId: payment._id.toString(),
-    ldOrderId:   ldOrder._id.toString(),
+    ldOrderId: ldOrder._id.toString(),
     orderNumber: ldOrder.orderNumber,
-    amount:      order.amount,
-    currency:    order.currency,
-    keyId:       process.env.RAZORPAY_KEY_ID,
-    breakdown:   { feePaise: price.feePaise, gstPaise: price.gstPaise, totalPaise: price.totalPaise, gstRate: addGst ? GST_RATE : 0 },
+    amount: order.amount,
+    currency: order.currency,
+    keyId: process.env.RAZORPAY_KEY_ID,
+    breakdown: { feePaise: price.feePaise, gstPaise: price.gstPaise, totalPaise: price.totalPaise, gstRate: addGst ? GST_RATE : 0 },
   })
 })
 
@@ -102,7 +102,7 @@ exports.verifyPayment = asyncHandler(async (req, res, next) => {
   if (!payment) return next(new AppError('Payment record not found', 404))
   if (req.user && payment.user && payment.user.toString() !== req.user._id.toString()) return next(new AppError('Not authorised', 403))
 
-  const body     = `${razorpay_order_id}|${razorpay_payment_id}`
+  const body = `${razorpay_order_id}|${razorpay_payment_id}`
   const expected = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(body).digest('hex')
   const sigOk = expected.length === String(razorpay_signature).length &&
     crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(String(razorpay_signature)))
@@ -337,7 +337,13 @@ exports.createEStampOrder = asyncHandler(async (req, res, next) => {
     considerationAmount: b.consideration !== undefined && b.consideration !== '' ? Number(b.consideration) : null,
     stampDuty: duty, printDocumentOnStamp: !!b.printDocument,
     delivery: b.delivery === 'courier' ? 'Email scan + courier' : 'Email scan only',
-    contact: { name: b.name, mobile: b.mobile, email: b.email },
+    contact: {
+      name: b.name, mobile: b.mobile, email: b.email,
+      ...(b.contactState ? { state: b.contactState } : {}), ...(b.contactCity ? { city: b.contactCity } : {}),
+    },
+    ...(b.businessName ? { businessName: b.businessName } : {}),
+    ...(b.agentReferralCode ? { agentReferralCode: b.agentReferralCode } : {}),
+    ...(b.specialInstructions ? { specialInstructions: b.specialInstructions } : {}),
     ...(b.delivery === 'courier' ? { deliveryAddress: { address: b.address, city: b.city, pincode: b.pincode, state: stateName } } : {}),
   }
 
@@ -507,7 +513,7 @@ exports.webhook = async (req, res) => {
     res.json({ success: true })
   } catch (err) {
     // Let Razorpay retry: remove the idempotency record so the retry is processed.
-    await WebhookEvent.deleteOne({ eventId }).catch(() => {})
+    await WebhookEvent.deleteOne({ eventId }).catch(() => { })
     console.error('[Webhook] Processing error:', err.message)
     res.status(500).json({ success: false })
   }

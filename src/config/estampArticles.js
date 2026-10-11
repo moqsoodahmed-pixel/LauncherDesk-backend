@@ -22,8 +22,8 @@ const STATE_ARTICLES = {
   karnataka: [
     { code: '4', label: 'Affidavit', rule: { type: 'fixed', amount: 100 } },
     { code: '5(J)', label: 'Agreement (in any other cases)', rule: { type: 'fixed', amount: 500 } },
-    { code: '30(1)(i)', label: 'Lease of immovable property, up to 1 year, residential', hint: 'Most rent agreements' },
-    { code: '30(1)(ii)', label: 'Lease of immovable property, up to 1 year, commercial or industrial' },
+    { code: '30(1)(i)', label: 'Lease of immovable property, up to 1 year, residential', hint: 'Most rent agreements', denominations: [100, 500, 1000] },
+    { code: '30(1)(ii)', label: 'Lease of immovable property, up to 1 year, commercial or industrial', denominations: [100, 500, 1000] },
     { code: '41(c)', label: 'Power of Attorney, authorising more than 5 persons to act jointly', rule: { type: 'fixed', amount: 500 } },
     { code: '41(e)', label: 'Power of Attorney, authorising sale of property', rule: { type: 'percent', rate: 5, base: 'Market value of the property' } },
     { code: '41(eb)', label: 'Power of Attorney, sale power given to other than family members', rule: { type: 'percent', rate: 5, base: 'Market value of the property' } },
@@ -45,6 +45,7 @@ const STATE_ARTICLES = {
     { code: '4', label: 'Affidavit' },
     { code: '4', label: 'Declaration', key: '4-declaration' },
     { code: '5', label: 'General Agreement' },
+    { code: '5', label: 'Sale Agreement', key: '5-sale', hint: 'Agreement to sell immovable property' },
     { code: '35(a)(i)', label: 'Lease, term of less than one year', hint: 'Most rent agreements' },
     { code: '35(a)(ii)', label: 'Lease, term of one to three years' },
     { code: '35(a)(iii)', label: 'Lease, term of more than three years' },
