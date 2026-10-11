@@ -109,15 +109,36 @@ const ESTAMP = {
   ],
 }
 
-/** Returns { dutyPaise, feePaise, gstPaise, totalPaise } or null for invalid input. */
+/**
+ * Convenience fee:
+ * Stamp duty <= ₹500: ₹0 (or ESTAMP.convenienceFee if explicitly configured)
+ * Stamp duty > ₹500 (e.g. ₹1000, ₹1001, ₹1500, ₹2000+): 5% of stamp duty
+ */
+function getConvenienceFee(duty) {
+  const d = Number(duty || 0)
+  if (ESTAMP.convenienceFee > 0) return ESTAMP.convenienceFee
+  if (d > 500) return Math.round(d * 0.05 * 100) / 100
+  return 0
+}
+
+/** Returns { dutyPaise, feePaise, gstPaise, totalPaise, conveniencePaise, procurementPaise, courierPaise } or null for invalid input. */
 function estampPrice({ stampDuty, delivery }) {
   const duty = Number(stampDuty)
   if (!Number.isInteger(duty) || duty < ESTAMP.minDuty || duty > ESTAMP.maxDuty) return null
   if (!['email', 'courier'].includes(delivery)) return null
-  const feePaise = (ESTAMP.convenienceFee + ESTAMP.procurementFee + (delivery === 'courier' ? ESTAMP.courierFee : 0)) * 100
+  const convenienceFee = getConvenienceFee(duty)
+  const feePaise = Math.round((convenienceFee + ESTAMP.procurementFee + (delivery === 'courier' ? ESTAMP.courierFee : 0)) * 100)
   const gstPaise = Math.round(feePaise * GST_RATE)
   const dutyPaise = duty * 100
-  return { dutyPaise, feePaise, gstPaise, totalPaise: dutyPaise + feePaise + gstPaise }
+  return {
+    dutyPaise,
+    feePaise,
+    gstPaise,
+    totalPaise: dutyPaise + feePaise + gstPaise,
+    conveniencePaise: Math.round(convenienceFee * 100),
+    procurementPaise: ESTAMP.procurementFee * 100,
+    courierPaise: (delivery === 'courier' ? ESTAMP.courierFee : 0) * 100,
+  }
 }
 
-module.exports = { GST_RATE, PLAN_PRICES, SERVICE_TITLES, priceFor, priceWithGst, TRADEMARK, APPLICANT_TYPES, trademarkPrice, ESTAMP, estampPrice }
+module.exports = { GST_RATE, PLAN_PRICES, SERVICE_TITLES, priceFor, priceWithGst, TRADEMARK, APPLICANT_TYPES, trademarkPrice, ESTAMP, estampPrice, getConvenienceFee }
