@@ -72,4 +72,3 @@ exports.deleteBlog = asyncHandler(async (req, res, next) => {
   if (!blog) return next(new AppError('Blog post not found', 404))
   res.json({ success: true, message: 'Blog post deleted' })
 })
-exports.
