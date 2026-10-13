@@ -130,7 +130,7 @@ exports.verifyPayment = asyncHandler(async (req, res, next) => {
 // The order is attached to the account that matches the email (a basic account
 // is created if there is none yet, so the order shows up when they sign in).
 
-const { priceFor, priceWithGst, SERVICE_TITLES, GST_RATE, TRADEMARK, trademarkPrice, ESTAMP, estampPrice } = require('../config/planPrices')
+const { priceFor, priceWithGst, SERVICE_TITLES, GST_RATE, TRADEMARK, trademarkPrice, ESTAMP, estampPrice, AGREEMENT, agreementPrice } = require('../config/planPrices')
 const User = require('../models/User')
 
 async function findOrCreateCustomer({ name, email, phone, city }) {
@@ -430,6 +430,75 @@ exports.estampCallback = asyncHandler(async (req, res) => {
   })
   console.log(`[Payment] e-Stamp callback verified: ${b.razorpay_payment_id}`)
   return back({ state, params: { paid: order?.orderNumber || 'ok', ...(order?._id ? { oid: String(order._id) } : {}) } })
+})
+
+// POST /api/payments/checkout/agreement/create-order — logged-in or guest customers
+// Amount = LauncherDesk drafting fee (Standard/Upgraded tier) + 18% GST on the fee.
+// Recalculated here from config/planPrices.js → AGREEMENT; the browser only sends the choice.
+// Verified with the existing generic verifyCheckoutPayment below — no new verify endpoint needed.
+exports.createAgreementOrder = asyncHandler(async (req, res, next) => {
+  const b = req.body
+  const price = agreementPrice({ agreementSlug: b.agreementSlug, tier: b.tier })
+  if (!price) return next(new AppError('Please choose a valid agreement and plan', 400))
+
+  const AGREEMENT_TITLES = require('../config/agreementTitles')
+  const title = AGREEMENT_TITLES[b.agreementSlug] || b.agreementTitle || 'Agreement'
+  const tierLabel = AGREEMENT.tiers[b.tier].label
+  const orderSlug = `agreement-${b.agreementSlug}-${b.tier}`
+  const serviceTitle = `${title} — ${tierLabel} Plan`
+  const customer = { name: b.name, email: b.email, phone: b.mobile, city: b.city || '' }
+  const details = {
+    kind: 'agreement', agreementSlug: b.agreementSlug, agreementTitle: title, tier: b.tier, tierLabel,
+    firstParty: b.firstParty, secondParty: b.secondParty,
+    contact: { name: b.name, mobile: b.mobile, email: b.email, city: b.city || '' },
+    ...(b.specialInstructions ? { specialInstructions: b.specialInstructions } : {}),
+  }
+
+  const razorpay = getRazorpay()
+  const user = req.user || (await findOrCreateCustomer({ name: b.name, email: b.email, phone: b.mobile, city: b.city || '' }))
+  const order = await razorpay.orders.create({
+    amount: price.totalPaise,
+    currency: 'INR',
+    receipt: `ld_${Date.now()}`,
+    notes: {
+      userId: user._id.toString(), userName: b.name, userEmail: b.email, userPhone: b.mobile,
+      serviceSlug: orderSlug, serviceTitle, agreementSlug: b.agreementSlug, tier: b.tier,
+    },
+  })
+
+  const payment = await Payment.create({
+    user: user._id,
+    razorpayOrderId: order.id,
+    serviceSlug: orderSlug,
+    serviceTitle,
+    amountPaise: order.amount,
+    amountRupees: order.amount / 100,
+    currency: 'INR',
+    status: 'created',
+    customer,
+    breakdown: { feePaise: price.feePaise, gstPaise: price.gstPaise, totalPaise: price.totalPaise },
+  })
+
+  const ldOrder = await require('../services/orderService').createOrder({
+    userId: user._id, serviceSlug: orderSlug, serviceTitle, amount: order.amount / 100, paymentId: payment._id,
+  })
+  await Payment.updateOne({ _id: payment._id }, { order: ldOrder._id })
+  await require('../models/ServiceOrder').updateOne({ _id: ldOrder._id }, {
+    professionalFee: price.feePaise / 100, gstAmount: price.gstPaise / 100, totalAmount: price.totalPaise / 100, details,
+  })
+
+  console.log(`[Payment] Agreement order created: ${order.id} — ${ldOrder.orderNumber} — ₹${order.amount / 100} — ${user.email} — ${title}, ${tierLabel}`)
+
+  res.json({
+    success: true,
+    orderId: order.id,
+    orderNumber: ldOrder.orderNumber,
+    ldOrderId: ldOrder._id.toString(),
+    amount: order.amount,
+    currency: order.currency,
+    keyId: process.env.RAZORPAY_KEY_ID,
+    breakdown: { feePaise: price.feePaise, gstPaise: price.gstPaise, totalPaise: price.totalPaise, gstRate: GST_RATE },
+  })
 })
 
 // POST /api/payments/checkout/verify — public; the Razorpay signature is the proof of payment

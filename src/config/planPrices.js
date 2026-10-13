@@ -141,4 +141,34 @@ function estampPrice({ stampDuty, delivery }) {
   }
 }
 
-module.exports = { GST_RATE, PLAN_PRICES, SERVICE_TITLES, priceFor, priceWithGst, TRADEMARK, APPLICANT_TYPES, trademarkPrice, ESTAMP, estampPrice, getConvenienceFee }
+/* ── Deeds & Agreements ───────────────────────────────────────────────────────
+ * Amount charged online = LauncherDesk drafting fee (Standard or Upgraded tier)
+ * + 18% GST on that fee. No government fee component — this is purely our
+ * drafting/e-Stamp-procurement service fee.
+ * ⚠ Keep in sync with AGREEMENT_PRICING in the frontend (src/data/agreements.js),
+ *   which is display-only. This block is isolated to the Agreements module and
+ *   must never be touched when changing pricing for any other service.
+ */
+const AGREEMENT = {
+  slugs: [
+    'rent-lease-agreement', 'agreement-to-sell', 'sale-deed', 'gift-deed', 'commercial-lease-agreement',
+    'partnership-llp-deed', 'franchise-agreement', 'joint-venture-agreement', 'business-transfer-agreement', 'vendor-supply-agreement',
+    'loan-agreement', 'non-disclosure-agreement', 'shareholder-agreement', 'startup-investment-agreement', 'vehicle-sale-agreement',
+  ],
+  tiers: {
+    standard: { label: 'Standard', fee: 899 },
+    upgraded: { label: 'Upgraded', fee: 1499 },
+  },
+}
+
+/** Returns { feePaise, gstPaise, totalPaise } or null for an invalid slug/tier. */
+function agreementPrice({ agreementSlug, tier }) {
+  if (!AGREEMENT.slugs.includes(agreementSlug)) return null
+  const t = AGREEMENT.tiers[tier]
+  if (!t) return null
+  const feePaise = t.fee * 100
+  const gstPaise = Math.round(feePaise * GST_RATE)
+  return { feePaise, gstPaise, totalPaise: feePaise + gstPaise }
+}
+
+module.exports = { GST_RATE, PLAN_PRICES, SERVICE_TITLES, priceFor, priceWithGst, TRADEMARK, APPLICANT_TYPES, trademarkPrice, ESTAMP, estampPrice, getConvenienceFee, AGREEMENT, agreementPrice }

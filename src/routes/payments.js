@@ -1,7 +1,7 @@
 const router = require('express').Router()
-const { getConfig, createOrder, verifyPayment, createCheckoutOrder, createTrademarkOrder, createEStampOrder, verifyCheckoutPayment, estampCallback } = require('../controllers/paymentController')
+const { getConfig, createOrder, verifyPayment, createCheckoutOrder, createTrademarkOrder, createEStampOrder, createAgreementOrder, verifyCheckoutPayment, estampCallback } = require('../controllers/paymentController')
 const { body } = require('express-validator')
-const { APPLICANT_TYPES, TRADEMARK } = require('../config/planPrices')
+const { APPLICANT_TYPES, TRADEMARK, AGREEMENT } = require('../config/planPrices')
 const { validate, nameValidator, emailValidator, mobileValidator } = require('../middleware/validate')
 // NOTE: POST /api/payments/webhook is mounted directly in server.js (it needs the raw body).
 const { protect, optionalAuth } = require('../middleware/auth')
@@ -59,6 +59,19 @@ router.post('/checkout/estamp/create-order', optionalAuth, [
   body('city').if(body('delivery').equals('courier')).trim().notEmpty().withMessage('City is required').isLength({ max: 80 }),
   body('pincode').if(body('delivery').equals('courier')).trim().matches(/^\d{6}$/).withMessage('Enter a 6-digit PIN code'),
 ], validate, createEStampOrder)
+
+// Deeds & Agreements — optionalAuth attached; price worked out on the server (config/planPrices.js → AGREEMENT)
+router.post('/checkout/agreement/create-order', optionalAuth, [
+  body('agreementSlug').trim().isIn(AGREEMENT.slugs).withMessage('Please choose a valid agreement'),
+  body('tier').trim().isIn(Object.keys(AGREEMENT.tiers)).withMessage('Please choose a plan'),
+  txt('firstParty', 150, 'First party name is required'),
+  txt('secondParty', 150, 'Second party name is required (write NIL if none)'),
+  nameValidator,
+  emailValidator,
+  mobileValidator,
+  body('city').optional({ checkFalsy: true }).trim().isLength({ max: 80 }),
+  body('specialInstructions').optional({ checkFalsy: true }).trim().isLength({ max: 500 }),
+], validate, createAgreementOrder)
 
 router.post('/checkout/verify', verifyCheckoutPayment)
 
