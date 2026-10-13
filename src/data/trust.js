@@ -28,13 +28,5 @@ export const CLIENT_LOGOS = [
 ]
 
 export const FEATURED_PARTNERS = [
-  {
-    id:       'doqfy',
-    name:     'Doqfy',
-    tagline:  'India-ready contract platform — our collab partner',
-    category: 'CLM',
-    url:      'https://www.doqfy.com/',
-    logo:     '/doqfy-logo.png',
-    badge:    'Partner',
-  },
+  // No featured partners listed yet.
 ]
